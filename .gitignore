@@ -1,0 +1,7 @@
+# Jars de dépendances : à ne pas publier (spigot.jar contient du code de Mojang)
+spigot.jar
+UHC-Meetup*.jar
+# Sorties de build
+build/
+.gradle/
+*.class

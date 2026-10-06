@@ -1,0 +1,29 @@
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group 'fr.nicknqck.addonbuilder'
+version '1'
+
+repositories {
+    mavenCentral()
+}
+
+compileJava.options.encoding = "UTF-8"
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+}
+
+dependencies {
+    compileOnly 'org.projectlombok:lombok:1.18.42'
+    annotationProcessor 'org.projectlombok:lombok:1.18.42'
+    testCompileOnly 'org.projectlombok:lombok:1.18.42'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.42'
+    // Les deux .jar sont à la racine du projet, à côté de index.html
+    compileOnly files('UHC-Meetup snapshot 17.jar')
+    compileOnly files('spigot.jar')
+}
+
+shadowJar {
+}

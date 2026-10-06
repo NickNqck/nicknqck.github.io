@@ -1,0 +1,5 @@
+name: __ADDON_NAME__
+version: 1.0
+main: fr.nicknqck.addonbuilder.Main
+depend: [ UHC-Meetup ]
+authors: [ __AUTHOR__ ]

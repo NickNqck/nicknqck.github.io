@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Sécurité : seuls nos propres fichiers sont autorisés (aucun CDN, aucun tracker) -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>UHC-Meetup – Créateur d'addon</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <a id="btn-ideas" class="btn discord" href="https://dev.lunatix.fr" target="_blank" rel="noopener noreferrer">Proposer une idée</a>
+    <h1>Créateur d'addon <span>UHC-Meetup</span></h1>
+    <div class="actions">
+      <button id="btn-import" class="btn blue" type="button">Import</button>
+      <button id="btn-export" class="btn red" type="button" disabled title="Renseigne d'abord ton pseudo et le nom du projet">Export</button>
+      <input id="file-import" type="file" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <main class="chest">
+    <nav id="crumbs" aria-label="Fil d'Ariane"></nav>
+    <section id="menu"><p class="intro">Chargement… Si ce message reste affiché, les fichiers du dossier <strong>js</strong> ne sont pas trouvés (touche F12, onglet Console ou Réseau).</p></section>
+    <p id="status" role="status" aria-live="polite"></p>
+  </main>
+
+  <aside id="warn" hidden>⚠ La snapshot 17 d'UHC-Meetup est utilisée : certaines choses peuvent ne pas fonctionner parfaitement.</aside>
+
+  <footer class="credit">Site généré par Claude Sonnet 5.5</footer>
+
+  <script src="js/items-data.js"></script>
+  <script src="js/colors-data.js"></script>
+  <script src="js/meetup-modes.js"></script>
+  <script src="js/effects-data.js"></script>
+  <script src="js/meetup-teams.js"></script>
+  <script src="js/commands-data.js"></script>
+  <script src="js/menu-data.js"></script>
+  <script src="js/vendor/jszip.min.js"></script>
+  <script src="js/spigot-check.js"></script>
+  <script src="js/template-jar.js"></script>
+  <script src="js/classgen.js"></script>
+  <script src="js/jar-builder.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,367 @@
+/*
+ * "Compilation" : assemble le .jar de l'addon dans le navigateur, sans serveur.
+ *   1. part du jar modèle précompilé (js/template-jar.js : Main, ConfigMDJ, MiniJson, plugin.yml)
+ *   2. remplace __ADDON_NAME__ et __AUTHOR__ dans plugin.yml (valeurs déjà validées) et y ajoute les commandes (+ alias)
+ *   3. ajoute addon-config.json (les réglages de l'utilisateur)
+ *   4. ajoute AddonTeams.class, l'enum des équipes générée par classgen.js
+ *
+ * build(data, onStep) prévient onStep({ label, state, detail, ms }) à chaque étape :
+ * state = "start" | "progress" | "done" | "error" | "info".
+ */
+const JarBuilder = (function () {
+  "use strict";
+
+  const ENUM_CLASS = "fr/nicknqck/addonbuilder/AddonTeams";
+  const ITEAM = "fr/nicknqck/interfaces/ITeam";
+  const ROLES_CLASS = "fr/nicknqck/addonbuilder/AddonRoles";
+  const IROLES = "fr/nicknqck/interfaces/IRoles";
+  const SUPPORT = "fr/nicknqck/addonbuilder/RoleSupport";
+  const ROLE_PACKAGE = "fr/nicknqck/addonbuilder/roles/";
+  const POWER_PACKAGE = "fr/nicknqck/addonbuilder/powers/";
+  const WHEN = ["PERMANENT", "DAY", "NIGHT", "AT_KILL", "MID_LIFE"];
+
+  // Nom de constante d'enum tiré du nom affiché : "Skull Kid" -> "Skull_Kid" (ASCII, identifiant Java valide)
+  function constName(name) {
+    let c = String(name).normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/ +/g, "_").replace(/[^A-Za-z0-9_]/g, "");
+    if (/^[0-9]/.test(c)) c = "_" + c;
+    return c;
+  }
+
+  function teamsOf(settings) {
+    const seen = Object.create(null);
+    return (settings.teams || []).map(function (t) {
+      const constant = constName(t.name);
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(constant)) throw new Error("Nom d'équipe inutilisable : " + t.name);
+      if (seen[constant]) throw new Error("Deux équipes donneraient la même constante : " + constant);
+      seen[constant] = true;
+      if (!/^[0-9a-f]$/.test(t.color)) throw new Error("Couleur invalide pour l'équipe " + t.name);
+      if (!/^[a-z0-9]+$/.test(t.mdj)) throw new Error("Mode de jeu invalide pour l'équipe " + t.name);
+      // Même présentation que ZeldaTeams : couleur "§a", nom "§aRoyaume"
+      return { constant: constant, color: "\u00a7" + t.color, name: "\u00a7" + t.color + t.name, mdj: t.mdj };
+    });
+  }
+
+  // Rôles : équipe (de l'addon ou de TeamList), mode de jeu, numéro dans l'équipe, objet, concepteur (gDesign)
+  function rolesOf(settings, teams) {
+    const seen = Object.create(null);
+    if (!/^[0-9a-f]$/.test(settings.authorColor)) throw new Error("Couleur du pseudo invalide.");
+    const gDesign = "\u00a7" + settings.authorColor + settings.author;
+    return (settings.roles || []).map(function (r) {
+      const constant = constName(r.name);
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(constant)) throw new Error("Nom de rôle inutilisable : " + r.name);
+      if (seen[constant]) throw new Error("Deux rôles donneraient la même constante : " + constant);
+      seen[constant] = true;
+      const ref = /^(addon|meetup):([A-Za-z_][A-Za-z0-9_]*)$/.exec(r.team);
+      if (!ref) throw new Error("Équipe invalide pour le rôle " + r.name);
+      let teamClass, code, bold = false;
+      if (ref[1] === "addon") {
+        const t = teams.find(function (x) { return x.constant === ref[2]; });
+        if (!t) throw new Error("Équipe introuvable pour le rôle " + r.name + " : " + ref[2]);
+        teamClass = "fr.nicknqck.addonbuilder.AddonTeams";
+        code = t.color.charAt(1);
+      } else {
+        const t = MEETUP_TEAMS.find(function (x) { return x.id === ref[2]; });
+        if (!t) throw new Error("Équipe d'UHC-Meetup inconnue pour le rôle " + r.name + " : " + ref[2]);
+        teamClass = "fr.nicknqck.enums.TeamList";
+        code = t.code; bold = !!t.bold;
+      }
+      if (!/^[a-z0-9]+$/.test(r.mdj)) throw new Error("Mode de jeu invalide pour le rôle " + r.name);
+      if (!/^[A-Z0-9_]+$/.test(r.item)) throw new Error("Objet invalide pour le rôle " + r.name);
+      if (!Number.isInteger(r.nmb) || r.nmb < 0 || r.nmb > 120) throw new Error("Numéro invalide pour le rôle " + r.name);
+      const noFall = r.noFall === undefined ? "NONE" : r.noFall;
+      if (["NONE", "PERMANENT", "DAY", "NIGHT"].indexOf(noFall) === -1) throw new Error("NoFall invalide pour le rôle " + r.name);
+      return { displayName: r.name, effects: r.effects || [], powers: r.powers || [], noFall: noFall, constant: constant, teamClass: teamClass, teamConst: ref[2], mdj: r.mdj, nmb: r.nmb, material: r.item,
+        itemName: "\u00a7" + code + (bold ? "\u00a7l" : "") + r.name, gDesign: gDesign };
+    });
+  }
+
+  // &a -> §a (couleurs et formats Minecraft) ; le nom d'un pouvoir doit finir par §r
+  const PROTECTED = ["ABSORPTION", "REGENERATION"]; // jamais empêchés par un passif
+  const mc = function (text) { return text.replace(/&([0-9a-fk-or])/g, "\u00a7$1"); };
+  const stripMc = function (text) { return text.replace(/&[0-9a-fk-or]/g, "").trim(); };
+  const MC_OK = /^(?:[^&\u00a7\u0000-\u001f\u007f]|&[0-9a-fk-or])*$/;
+
+  // Pouvoirs d'un rôle : une classe par pouvoir (étend Power)
+  function powersOf(role, settings) {
+    const seen = Object.create(null);
+    const commandArgs = Object.create(null); // "commande arg" déjà pris dans ce rôle
+    if ((role.powers || []).length > 10) throw new Error("Plus de 10 pouvoirs pour le rôle " + role.constant);
+    return (role.powers || []).map(function (p) {
+      if (["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "ITEM", "COMMAND_EFFECTS"].indexOf(p.kind) === -1) throw new Error("Type de pouvoir inconnu : " + p.kind);
+      const blocker = ["BLOCK_EFFECT", "BLOCK_POWER", "INFO"].indexOf(p.kind) !== -1;
+      if (blocker && (!Number.isInteger(p.radius) || p.radius < 1 || p.radius > 100)) throw new Error("Rayon invalide pour le pouvoir " + stripMc(p.title));
+      let param = "";
+      if (p.kind === "BLOCK_EFFECT") {
+        const list = p.blockedEffects;
+        if (!Array.isArray(list) || !list.length || list.length > 40 || !list.every(function (e) { return /^[A-Z_]{2,30}$/.test(e); }))
+          throw new Error("Effets invalides pour le pouvoir " + stripMc(p.title));
+        if (list.some(function (e) { return PROTECTED.indexOf(e) !== -1; }))
+          throw new Error("Absorption et Régénération ne peuvent pas être empêchées (pouvoir " + stripMc(p.title) + ").");
+        param = list.join(",");
+      }
+      if (p.kind === "INFO") { // "secondes|couleur par défaut|camp=couleur,camp=couleur" (couleurs en hexadécimal)
+        const hex = function (code) {
+          const c = /^[0-9a-f]$/.test(code) && COLORS.find(function (x) { return x.code === code; });
+          if (!c) throw new Error("Couleur invalide pour le pouvoir " + stripMc(p.title));
+          return c.hex.slice(1);
+        };
+        if (!Number.isInteger(p.needSeconds) || p.needSeconds < 5 || p.needSeconds > 3600) throw new Error("Temps invalide pour le pouvoir " + stripMc(p.title));
+        const map = Object.keys(p.teamColors || {}).map(function (ref) {
+          if (!/^(addon|meetup):[A-Za-z_][A-Za-z0-9_]*$/.test(ref)) throw new Error("Camp invalide pour le pouvoir " + stripMc(p.title));
+          return ref + "=" + hex(p.teamColors[ref]);
+        });
+        param = p.needSeconds + "|" + hex(p.defaultColor) + "|" + map.join(",");
+      }
+      // Commande : /commande <argument> active le pouvoir (effets maintenus ou limités dans le temps), la même commande le désactive.
+      // param = "EFFET:ticks:amplificateur+..." (ticks 0 = tant que le pouvoir est activé)
+      let command = "", arg = "", autoLine = null;
+      if (p.kind === "COMMAND_EFFECTS") {
+        const title = stripMc(p.title);
+        const known = (settings.commands || []).some(function (c) { return c && c.name === p.command; });
+        if (typeof p.command !== "string" || !/^[a-z][a-z0-9_]{0,15}$/.test(p.command) || !known) throw new Error("Commande inconnue pour le pouvoir " + title);
+        if (typeof p.arg !== "string" || !/^[a-z][a-z0-9_]{0,19}$/.test(p.arg) || RESERVED_ARGS.indexOf(p.arg) !== -1) throw new Error("Argument de commande invalide pour le pouvoir " + title);
+        if (commandArgs[p.command + " " + p.arg]) throw new Error("Deux pouvoirs du rôle " + role.constant + " utilisent /" + p.command + " " + p.arg);
+        commandArgs[p.command + " " + p.arg] = true;
+        const list = p.cmdEffects;
+        if (!Array.isArray(list) || !list.length || list.length > MAX_COMMAND_EFFECTS) throw new Error("Effets invalides pour le pouvoir " + title);
+        param = list.map(function (e) {
+          if (!e || !/^[A-Z_]{2,30}$/.test(e.effect)) throw new Error("Effet invalide pour le pouvoir " + title);
+          if (!Number.isInteger(e.level) || e.level < 1 || e.level > 10) throw new Error("Niveau invalide pour le pouvoir " + title);
+          if (!Number.isInteger(e.seconds) || e.seconds < 0 || e.seconds > 1600) throw new Error("Durée invalide pour le pouvoir " + title);
+          return e.effect + ":" + (e.seconds * 20) + ":" + (e.level - 1);
+        }).join("+");
+        command = p.command; arg = p.arg;
+        autoLine = "\u00a77Commande : \u00a7a/" + command + " " + arg + "\u00a77 (l'activer, puis la retaper pour la d\u00e9sactiver)";
+      }
+
+      // Objet à activer : param = "action du clic gauche|action du clic droit|cooldownGauche;cooldownDroit" ("-" = ce clic ne fait rien),
+      // une action = "EFFET,ticks,amplificateur,distanceDeVisée" (distance 0 = sans visée, l'effet va à l'utilisateur)
+      let material = "", itemName = "";
+      if (p.kind === "ITEM") {
+        const title = stripMc(p.title);
+        if (typeof p.powerItem !== "string" || !/^[A-Z0-9_]{2,40}$/.test(p.powerItem)) throw new Error("Objet invalide pour le pouvoir " + title);
+        if (["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT"].indexOf(p.clickMode) === -1) throw new Error("Clic invalide pour le pouvoir " + title);
+        const TYPES = ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER", "LAUNCH"];
+        // action = "TYPE,distanceDeVisée,distanceAutour,effets,projectile" ; effets = "U|T:EFFET:ticks:amplificateur" séparés par "+" ;
+        // projectile (LAUNCH seulement) = "PROJECTILE;tp;zone;rayon;dégâtsEnDemiCœurs;secondes;couleurHex"
+        const action = function (prefix) {
+          const type = p[prefix + "Action"];
+          if (TYPES.indexOf(type) === -1) throw new Error("Action invalide pour le pouvoir " + title);
+          const tp = type.indexOf("TP_") === 0;
+          const aim = tp || (type === "EFFECT_ONLY" && p[prefix + "Aim"] === true);
+          const dist = aim ? p[prefix + (tp ? "TpDistance" : "Distance")] : 0;
+          if (aim && (!Number.isInteger(dist) || dist < 1 || dist > 100)) throw new Error("Visée invalide pour le pouvoir " + title);
+          const radius = type === "TP_AROUND" ? p[prefix + "Radius"] : 0;
+          if (type === "TP_AROUND" && (!Number.isInteger(radius) || radius < 1 || radius > 30)) throw new Error("Distance autour de la cible invalide pour le pouvoir " + title);
+          const list = p[prefix + "Effects"];
+          if (!Array.isArray(list) || list.length > 5) throw new Error("Effets invalides pour le pouvoir " + title);
+          const effects = list.map(function (e) {
+            if (!/^[A-Z_]{2,30}$/.test(e.effect)) throw new Error("Effet invalide pour le pouvoir " + title);
+            if (!Number.isInteger(e.level) || e.level < 1 || e.level > 10) throw new Error("Niveau invalide pour le pouvoir " + title);
+            if (!Number.isInteger(e.seconds) || e.seconds < 1 || e.seconds > 1600) throw new Error("Durée invalide pour le pouvoir " + title);
+            if (e.who !== "USER" && e.who !== "TARGET") throw new Error("Destinataire invalide pour le pouvoir " + title);
+            if (e.who === "TARGET" && !aim) throw new Error("Un effet pour la cible demande de viser un joueur (pouvoir " + title + ").");
+            return (e.who === "TARGET" ? "T" : "U") + ":" + e.effect + ":" + (e.seconds * 20) + ":" + (e.level - 1);
+          });
+          if (type === "EFFECT_ONLY" && !effects.length) throw new Error("Aucun effet pour le pouvoir " + title);
+          let launch = "";
+          if (type === "LAUNCH") {
+            const projectile = p[prefix + "Projectile"];
+            if (["ARROW", "SNOWBALL"].indexOf(projectile) === -1) throw new Error("Projectile invalide pour le pouvoir " + title);
+            const impactTp = p[prefix + "ImpactTp"] === true, zone = p[prefix + "Zone"] === true;
+            const zr = zone ? p[prefix + "ZoneRadius"] : 0, zs = zone ? p[prefix + "ZoneSeconds"] : 0;
+            const hearts = zone ? p[prefix + "ZoneDamage"] : 0;
+            if (zone && (!Number.isInteger(zr) || zr < 1 || zr > 30)) throw new Error("Rayon de zone invalide pour le pouvoir " + title);
+            if (zone && (typeof hearts !== "number" || !Number.isInteger(hearts * 2) || hearts < 0.5 || hearts > 10)) throw new Error("Dégâts de zone invalides pour le pouvoir " + title);
+            if (zone && (!Number.isInteger(zs) || zs < 0 || zs > 60)) throw new Error("Durée de zone invalide pour le pouvoir " + title);
+            if (!impactTp && !zone && !effects.length) throw new Error("Le projectile du pouvoir " + title + " n'a aucune conséquence.");
+            const zoneColor = zone ? p[prefix + "ZoneColor"] : "c";
+            const swatch = /^[0-9a-f]$/.test(zoneColor) && COLORS.find(function (x) { return x.code === zoneColor; });
+            if (!swatch) throw new Error("Couleur de zone invalide pour le pouvoir " + title);
+            launch = [projectile, impactTp ? 1 : 0, zone ? 1 : 0, zr, zone ? hearts * 2 : 0, zs, swatch.hex.slice(1)].join(";");
+          }
+          return type + "," + dist + "," + radius + "," + effects.join("+") + "," + launch;
+        };
+        const first = p.clickMode === "RIGHT_ONLY" ? null : action("a");
+        const second = p.clickMode === "RIGHT_ONLY" || p.clickMode === "DIFFERENT" ? action("b") : null;
+        const left = p.clickMode === "RIGHT_ONLY" ? "-" : first;
+        const right = p.clickMode === "LEFT_ONLY" ? "-" : p.clickMode === "BOTH_SAME" ? first : second;
+        // cooldown propre à chaque clic (seulement quand les deux clics sont différents), en secondes, 0 = aucun : "gauche;droit"
+        let cdLeft = 0, cdRight = 0;
+        if (p.clickMode === "DIFFERENT") {
+          cdLeft = p.aCooldown === undefined ? 0 : p.aCooldown;
+          cdRight = p.bCooldown === undefined ? 0 : p.bCooldown;
+          [cdLeft, cdRight].forEach(function (cd) {
+            if (!Number.isInteger(cd) || cd < 0 || cd > 3600) throw new Error("Cooldown de clic invalide pour le pouvoir " + title);
+          });
+        }
+        param = left + "|" + right + "|" + cdLeft + ";" + cdRight;
+        material = p.powerItem;
+        itemName = mc(p.title);
+      }
+      if (typeof p.title !== "string" || p.title.length > 40 || !MC_OK.test(p.title) || !stripMc(p.title))
+        throw new Error("Nom de pouvoir invalide pour le rôle " + role.constant);
+      const lines = String(p.description || "").split("\n");
+      if (lines.length > 6 || !lines.every(function (l) { return l.length <= 100 && MC_OK.test(l); }))
+        throw new Error("Description invalide pour le pouvoir " + stripMc(p.title));
+      if (!Number.isInteger(p.cooldown) || p.cooldown < 0 || p.cooldown > 3600) throw new Error("Cooldown invalide pour le pouvoir " + stripMc(p.title));
+      if (!Number.isInteger(p.maxUse) || p.maxUse < 0 || p.maxUse > 999) throw new Error("Utilisations maximum invalides pour le pouvoir " + stripMc(p.title));
+      const id = constName(stripMc(p.title));
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(id)) throw new Error("Nom de pouvoir inutilisable : " + stripMc(p.title));
+      if (seen[id]) throw new Error("Deux pouvoirs donneraient la même classe : " + id);
+      seen[id] = true;
+      const name = mc(p.title);
+      return { className: POWER_PACKAGE + role.constant + "_" + id, name: /\u00a7r$/.test(name) ? name : name + "\u00a7r",
+        cooldown: p.cooldown, maxUse: p.maxUse, kind: p.kind, radius: blocker ? p.radius : 0,
+        param: param, material: material, itemName: itemName, command: command, arg: arg,
+        descriptions: (autoLine ? [autoLine] : []).concat(String(p.description || "") === "" ? [] : lines.map(mc)) };
+    });
+  }
+
+  // Une classe par rôle : { constant, effects: [{ type, ticks, amp, when }] }
+  function roleClassesOf(settings, roles) {
+    return roles.map(function (r) {
+      const effects = (r.effects || []).map(function (e) {
+        if (!/^[A-Z_]{2,30}$/.test(e.effect)) throw new Error("Effet invalide pour le rôle " + r.constant);
+        if (WHEN.indexOf(e.when) === -1) throw new Error("Moment invalide pour le rôle " + r.constant);
+        if (!Number.isInteger(e.level) || e.level < 1 || e.level > 10) throw new Error("Niveau invalide pour le rôle " + r.constant);
+        if (!Number.isInteger(e.seconds) || e.seconds < 1 || e.seconds > 1600) throw new Error("Durée invalide pour le rôle " + r.constant);
+        // durée réglable uniquement en tuant un joueur ; sinon 60 ticks par défaut (comme Darunia)
+        return { type: e.effect, ticks: e.when === "AT_KILL" ? e.seconds * 20 : 60, amp: e.level - 1, when: e.when };
+      });
+      if (effects.length > 15) throw new Error("Plus de 15 effets pour le rôle " + r.constant);
+      return { constant: r.constant, displayName: r.displayName, effects: effects, powers: powersOf(r, settings), noFall: r.noFall };
+    });
+  }
+
+  // Commandes personnalisées : { name, aliases: [alias] }, revérifiées ici (elles sont écrites dans le plugin.yml)
+  function commandsOf(settings) {
+    const list = settings.commands || [];
+    if (!Array.isArray(list) || list.length > MAX_COMMANDS) throw new Error("Trop de commandes (" + MAX_COMMANDS + " maximum).");
+    const done = [];
+    return list.map(function (c) {
+      if (!c || typeof c !== "object" || !Array.isArray(c.aliases) || c.aliases.length > MAX_ALIASES) throw new Error("Commande invalide.");
+      const entry = { name: c.name, aliases: c.aliases.map(function (a) { return { alias: a && a.alias }; }) };
+      const problem = commandProblem(entry, done); // format, noms réservés, doublons
+      if (problem) throw new Error(problem);
+      done.push(entry);
+      return { name: entry.name, aliases: entry.aliases.map(function (a) { return a.alias; }) };
+    });
+  }
+
+  // Bloc "commands:" du plugin.yml. Tout est entre guillemets : "no", "on" ou "y" seraient sinon lus comme des booléens par YAML.
+  // Les noms ont déjà été limités à [a-z0-9_] : aucun caractère spécial ne peut passer.
+  function commandsYaml(commands) {
+    if (!commands.length) return "";
+    const q = function (v) {
+      if (!/^[a-z][a-z0-9_]{0,15}$/.test(v)) throw new Error("Nom de commande invalide pour le plugin.yml : " + v);
+      return '"' + v + '"';
+    };
+    let yml = "commands:\n";
+    commands.forEach(function (c) {
+      yml += "  " + q(c.name) + ":\n    description: \"Commande de l'addon\"\n    usage: \"/<command> [me|roles]\"\n";
+      if (c.aliases.length) yml += "    aliases: [" + c.aliases.map(q).join(", ") + "]\n";
+    });
+    return yml;
+  }
+
+  const kb = function (n) { return (n / 1024).toFixed(1) + " Ko"; };
+  const pause = function () { return new Promise(function (r) { setTimeout(r, 60); }); }; // laisse l'écran se rafraîchir
+
+  // Exécute une étape en prévenant onStep (début, fin avec durée, ou erreur)
+  function run(onStep, label, fn) {
+    const t = performance.now();
+    onStep({ label: label, state: "start" });
+    return pause().then(fn).then(function (detail) {
+      onStep({ label: label, state: "done", detail: detail || "", ms: Math.round(performance.now() - t) });
+    }, function (e) {
+      onStep({ label: label, state: "error", detail: e.message });
+      throw e;
+    });
+  }
+
+  function build(data, onStep) {
+    onStep = onStep || function () {};
+    const s = data.settings, ctx = {};
+
+    return run(onStep, "Chargement du modèle de jar", function () {
+      if (!/^[A-Za-z0-9_]{3,16}$/.test(s.author) || !/^[A-Za-z0-9_-]{1,32}$/.test(s.addonName))
+        throw new Error("Pseudo ou nom du projet invalide.");
+      return JSZip.loadAsync(TEMPLATE_JAR_B64, { base64: true }).then(function (zip) {
+        ctx.zip = zip;
+        const n = Object.keys(zip.files).filter(function (f) { return !zip.files[f].dir; }).length;
+        return n + " fichiers, modèle de " + kb(TEMPLATE_JAR_B64.length * 0.75);
+      });
+
+    }).then(function () {
+      return run(onStep, "Configuration de plugin.yml", function () {
+        const yml = ctx.zip.file("plugin.yml");
+        if (!yml) throw new Error("Modèle de jar invalide : plugin.yml manquant.");
+        return yml.async("string").then(function (text) {
+          const commands = commandsOf(s);
+          const base = text.split("__ADDON_NAME__").join(s.addonName).split("__AUTHOR__").join(s.author);
+          ctx.zip.file("plugin.yml", base.replace(/\s*$/, "\n") + commandsYaml(commands));
+          return "name = " + s.addonName + ", authors = " + s.author + ", " + commands.length + " commande(s)"
+            + commands.map(function (c) { return " /" + c.name + (c.aliases.length ? " (alias : " + c.aliases.join(", ") + ")" : ""); }).join(",");
+        });
+      });
+
+    }).then(function () {
+      return run(onStep, "Ajout de addon-config.json", function () {
+        const json = JSON.stringify(data, null, 2);
+        ctx.zip.file("addon-config.json", json);
+        return (s.modes || []).length + " mode(s) de jeu, " + (s.teams || []).length + " équipe(s), " + kb(json.length);
+      });
+
+    }).then(function () {
+      return run(onStep, "Génération de l'enum des équipes", function () {
+        const teams = ctx.teams = teamsOf(s);
+        if (!teams.length) return "aucune équipe : étape ignorée";
+        const bytes = ClassGen.teamsEnum(ENUM_CLASS, ITEAM, teams);
+        ctx.zip.file(ENUM_CLASS + ".class", bytes, { binary: true });
+        return teams.map(function (t) { return t.constant; }).join(", ") + " (AddonTeams.class, " + bytes.length + " octets)";
+      });
+
+    }).then(function () {
+      return run(onStep, "Génération de l'enum des rôles", function () {
+        const roles = rolesOf(s, ctx.teams);
+        if (!roles.length) return "aucun rôle : étape ignorée";
+        const bytes = ClassGen.rolesEnum(ROLES_CLASS, IROLES, SUPPORT, roles);
+        ctx.zip.file(ROLES_CLASS + ".class", bytes, { binary: true });
+        ctx.roles = roles;
+        return roles.map(function (r) { return r.constant + "#" + r.nmb; }).join(", ") + " (AddonRoles.class, " + bytes.length + " octets)";
+      });
+
+    }).then(function () {
+      return run(onStep, "Génération des classes de rôles", function () {
+        if (!ctx.roles) return "aucun rôle : étape ignorée";
+        const classes = roleClassesOf(s, ctx.roles);
+        classes.forEach(function (c) {
+          ctx.zip.file(ROLE_PACKAGE + c.constant + ".class", ClassGen.roleClass({
+            className: ROLE_PACKAGE + c.constant, enumClass: ROLES_CLASS, constant: c.constant,
+            displayName: c.displayName, support: SUPPORT, effects: c.effects, noFall: c.noFall,
+            powers: c.powers.map(function (p) { return { className: p.className.replace(/\//g, "."), item: p.kind === "ITEM" }; }) }), { binary: true });
+          c.powers.forEach(function (p) { ctx.zip.file(p.className + ".class", ClassGen.powerClass(p), { binary: true }); });
+        });
+        return classes.map(function (c) {
+          return c.constant + " (" + c.effects.length + " effet" + (c.effects.length > 1 ? "s" : "") + ", " + c.powers.length + " pouvoir" + (c.powers.length > 1 ? "s" : "") + ")";
+        }).join(", ");
+      });
+
+    }).then(function () {
+      return run(onStep, "Assemblage du .jar", function () {
+        return ctx.zip.generateAsync({ type: "blob", compression: "DEFLATE", mimeType: "application/java-archive" },
+          function (meta) { onStep({ label: "Assemblage du .jar", state: "progress", detail: Math.round(meta.percent) + " %" }); })
+          .then(function (blob) { ctx.blob = blob; return kb(blob.size); });
+      });
+
+    }).then(function () {
+      const names = Object.keys(ctx.zip.files).filter(function (f) { return !ctx.zip.files[f].dir; });
+      onStep({ label: "Contenu du jar", state: "info", detail: names.join(" · ") });
+      return ctx.blob;
+    });
+  }
+
+  return { build: build, constName: constName, commandsYaml: commandsYaml };
+})();
