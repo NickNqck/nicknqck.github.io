@@ -876,7 +876,16 @@
       // renommer une équipe : les rôles qui l'utilisent suivent
       if (col.id === TEAMS_ID && constName(list[ed.index].name) !== constName(out.name)) {
         const was = "addon:" + constName(list[ed.index].name), now = "addon:" + constName(out.name);
-        (state[ROLES_ID] || []).forEach(function (r) { if (r.team === was) r.team = now; });
+        (state[ROLES_ID] || []).forEach(function (r) {
+          if (r.team === was) r.team = now;
+          // les couleurs par camp des passifs d'information suivent aussi (sinon la couleur choisie serait perdue)
+          (r.powers || []).forEach(function (p) {
+            if (p.teamColors && Object.prototype.hasOwnProperty.call(p.teamColors, was)) {
+              p.teamColors[now] = p.teamColors[was];
+              delete p.teamColors[was];
+            }
+          });
+        });
       }
       // renommer une commande : les pouvoirs qui l'utilisent suivent
       if (col.id === COMMANDS_ID && list[ed.index].name !== out.name) {
