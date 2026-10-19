@@ -1068,9 +1068,15 @@
     if (flat.length) section("Autres réglages", flat.map(function (id) { return line(items[id].label, fieldText(items[id], state[id])); }));
     menu.appendChild(box);
     const area = el("div", "buildlog");
-    const go = button("btn gold", "Compilation", function () { compile(go, area); });
-    menu.appendChild(el("p", "hint", "Génère le .jar de ton addon, à placer dans le dossier plugins du serveur."));
-    menu.appendChild(go);
+    const go = button("btn gold", "Compilation", function () { compile(go, ide, area); });
+    const ide = button("btn blue", "Projet IntelliJ", function () { exportProject(go, ide, area); });
+    ide.title = "Code source Java de ton addon (projet Gradle) à ouvrir dans IntelliJ IDEA ou un autre IDE";
+    menu.appendChild(el("p", "hint", "Compilation : le .jar de ton addon, à placer dans le dossier plugins du serveur. " +
+      "Projet IntelliJ : le même addon en code source Java (projet Gradle), à ouvrir et modifier dans un IDE."));
+    const bar = el("div", "buildbar");
+    bar.appendChild(go);
+    bar.appendChild(ide);
+    menu.appendChild(bar);
     menu.appendChild(area);
   }
 
@@ -1167,6 +1173,45 @@
   // ---------- Bouton "Compilation" : journal des étapes ----------
   const BUILD_STEPS = 10; // pour la barre de progression
 
+  // Bouton "Projet IntelliJ" : même vérification que la compilation, puis un .zip du projet Gradle (code source)
+  function exportProject(other, btn, area) {
+    area.replaceChildren();
+    const log = createBuildLog(area);
+    if (!spigotOk) { say("Vérifie d'abord ton spigot.jar 1.8.8 (retour à l'accueil).", true); return; }
+    const t0 = performance.now();
+    btn.disabled = true; other.disabled = true;
+    const finish = function () { btn.disabled = false; other.disabled = false; };
+    const fail = function (label, msg) {
+      log({ label: label, state: "error", detail: msg });
+      say("Échec de l'export du projet : " + msg, true);
+      finish();
+    };
+    log({ label: "Vérification du projet", state: "start" });
+    const data = makeData();
+    if (!data) return fail("Vérification du projet", $("#status").textContent);
+    log({ label: "Vérification du projet", state: "done", detail: "pseudo et nom du projet valides, réglages valides" });
+    const missing = missingFiles().concat(has(function () { return JavaGen; }) ? [] : ["js/javagen.js"])
+      .concat(has(function () { return TEMPLATE_SOURCES; }) ? [] : ["js/template-sources.js"]);
+    if (missing.length) {
+      return fail("Vérification des fichiers du site",
+        "fichier(s) non chargé(s) : " + missing.join(", ") + ". Vérifie qu'ils sont bien dans le dossier du site, puis recharge avec Ctrl+F5.");
+    }
+    say("Création du projet en cours…");
+    JarBuilder.buildProject(data, log).then(function (blob) {
+      const name = state.addonName + "_" + today() + "_projet.zip";
+      log({ label: "Téléchargement", state: "start" });
+      download(blob, name);
+      const link = el("a", "btn blue", "Télécharger " + name);
+      link.href = URL.createObjectURL(blob);
+      link.download = name;
+      area.appendChild(link);
+      log({ label: "Téléchargement", state: "done", detail: name + " : décompresse-le, copie ton jar UHC-Meetup et ton spigot.jar dans libs/, puis ouvre le dossier dans IntelliJ (README.md du projet)" });
+      say("Projet créé en " + Math.round(performance.now() - t0) + " ms : " + name);
+    }).catch(function (e) {
+      say("Échec de l'export du projet : " + e.message, true);
+    }).then(finish);
+  }
+
   function missingFiles() {
     const out = [];
     if (!has(function () { return JSZip; })) out.push("js/vendor/jszip.min.js");
@@ -1200,13 +1245,13 @@
     };
   }
 
-  function compile(btn, area) {
+  function compile(btn, other, area) {
     area.replaceChildren();
     const log = createBuildLog(area);
     if (!spigotOk) { say("Vérifie d'abord ton spigot.jar 1.8.8 (retour à l'accueil).", true); return; }
     const t0 = performance.now();
-    btn.disabled = true;
-    const finish = function () { btn.disabled = false; };
+    btn.disabled = true; other.disabled = true;
+    const finish = function () { btn.disabled = false; other.disabled = false; };
     const fail = function (label, msg) {
       log({ label: label, state: "error", detail: msg });
       say("Échec de la compilation : " + msg, true);

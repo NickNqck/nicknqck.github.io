@@ -28,6 +28,12 @@ public class ConfigMDJ implements IMDJ {
         this.loader = loader;
     }
 
+    /** Nom du mode (IMDJ.name() : pour les modes d'UHC-Meetup, c'est le nom de la constante d'enum MDJ). */
+    @Override
+    public String name() {
+        return this.name;
+    }
+
     @Override
     public ItemStack getItem() {
         return this.item.clone();
