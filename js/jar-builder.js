@@ -363,5 +363,160 @@ const JarBuilder = (function () {
     });
   }
 
-  return { build: build, constName: constName, commandsYaml: commandsYaml };
+  // ---------- Projet pour IDE (IntelliJ IDEA, Eclipse...) : le même addon, en code source Java + Gradle ----------
+
+  function gradleFiles(name) {
+    const build = [
+      "// Projet généré par le Créateur d'addon UHC-Meetup.",
+      "// Place ton jar UHC-Meetup et ton spigot.jar (1.8.8) dans le dossier libs/ : tous les .jar de libs/ servent à compiler.",
+      "plugins {",
+      "    id 'java'",
+      "}",
+      "",
+      "group = 'fr.nicknqck.addonbuilder'",
+      "version = '1.0'",
+      "",
+      "java {",
+      "    sourceCompatibility = JavaVersion.VERSION_1_8",
+      "    targetCompatibility = JavaVersion.VERSION_1_8",
+      "}",
+      "",
+      "tasks.withType(JavaCompile).configureEach {",
+      "    options.encoding = 'UTF-8'",
+      "}",
+      "",
+      "dependencies {",
+      "    compileOnly fileTree(dir: 'libs', include: ['*.jar'])",
+      "}",
+      "",
+      "jar {",
+      "    archiveFileName = '" + name + ".jar'",
+      "}",
+      ""].join("\n");
+    const readme = [
+      "# " + name,
+      "",
+      "Addon UHC-Meetup généré par le Créateur d'addon UHC-Meetup, sous forme de projet Gradle à ouvrir dans un IDE.",
+      "",
+      "## Ouvrir le projet dans IntelliJ IDEA",
+      "",
+      "1. Décompresse ce .zip.",
+      "2. Copie ton jar **UHC-Meetup** et ton **spigot.jar** (Spigot 1.8.8) dans le dossier `libs/` (ils ne sont pas fournis).",
+      "3. Dans IntelliJ : **File → Open…**, choisis le dossier `" + name + "`, puis **Trust Project**.",
+      "   IntelliJ reconnaît le projet Gradle et télécharge Gradle tout seul (version indiquée dans `gradle/wrapper/gradle-wrapper.properties`).",
+      "4. Vérifie le JDK : **File → Project Structure → Project → SDK** (Java 8 ou plus récent ; le code est compilé pour Java 8).",
+      "",
+      "## Compiler le .jar",
+      "",
+      "Fenêtre **Gradle** (à droite) → `" + name + "` → **Tasks → build → jar**.",
+      "Le fichier est créé dans `build/libs/" + name + ".jar` : place-le dans le dossier `plugins` du serveur, à côté d'UHC-Meetup.",
+      "",
+      "## Où est quoi",
+      "",
+      "- `src/main/java/fr/nicknqck/addonbuilder/` : le code commun de l'addon (Main, menus, pouvoirs...).",
+      "- `AddonTeams.java`, `AddonRoles.java` : tes équipes et tes rôles.",
+      "- `roles/` : une classe par rôle ; `powers/` : une classe par pouvoir.",
+      "- `src/main/resources/plugin.yml` : nom, auteur et commandes ; `addon-config.json` : tes réglages.",
+      "",
+      "Ce projet est une copie : le modifier ne change pas le site. Pour repartir du site, réimporte ton .json et réexporte.",
+      ""].join("\n");
+    return {
+      "build.gradle": build,
+      "settings.gradle": "rootProject.name = '" + name + "'\n",
+      "gradle/wrapper/gradle-wrapper.properties": [
+        "distributionBase=GRADLE_USER_HOME",
+        "distributionPath=wrapper/dists",
+        "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.10.2-bin.zip",
+        "zipStoreBase=GRADLE_USER_HOME",
+        "zipStorePath=wrapper/dists",
+        ""].join("\n"),
+      ".gitignore": "build/\n.gradle/\n.idea/\n*.iml\nout/\nlibs/*.jar\n",
+      "libs/LISEZ-MOI.txt": "Copie ici ton jar UHC-Meetup et ton spigot.jar (Spigot 1.8.8).\nIls servent seulement à compiler : ils ne sont pas inclus dans le .jar de l'addon.\n",
+      "README.md": readme
+    };
+  }
+
+  /** Projet Gradle complet (code source) dans un .zip : buildProject(data, onStep) -> Promise<Blob> */
+  function buildProject(data, onStep) {
+    onStep = onStep || function () {};
+    const s = data.settings, ctx = { files: {} };
+    const root = function (path) { return s.addonName + "/" + path; };
+    const JAVA = "src/main/java/fr/nicknqck/addonbuilder/";
+
+    return run(onStep, "Préparation du projet", function () {
+      if (!/^[A-Za-z0-9_]{3,16}$/.test(s.author) || !/^[A-Za-z0-9_-]{1,32}$/.test(s.addonName))
+        throw new Error("Pseudo ou nom du projet invalide.");
+      if (typeof TEMPLATE_SOURCES === "undefined" || !TEMPLATE_SOURCES["src/main/resources/plugin.yml"])
+        throw new Error("Code source du modèle introuvable (js/template-sources.js).");
+      let n = 0;
+      Object.keys(TEMPLATE_SOURCES).forEach(function (path) {
+        if (path.indexOf(JAVA) === 0) { ctx.files[path] = TEMPLATE_SOURCES[path]; n++; }
+      });
+      return n + " fichiers du code commun";
+
+    }).then(function () {
+      return run(onStep, "Configuration de plugin.yml", function () {
+        const commands = commandsOf(s);
+        const base = TEMPLATE_SOURCES["src/main/resources/plugin.yml"].split("__ADDON_NAME__").join(s.addonName).split("__AUTHOR__").join(s.author);
+        ctx.files["src/main/resources/plugin.yml"] = base.replace(/\s*$/, "\n") + commandsYaml(commands);
+        return "name = " + s.addonName + ", authors = " + s.author + ", " + commands.length + " commande(s)";
+      });
+
+    }).then(function () {
+      return run(onStep, "Ajout de addon-config.json", function () {
+        const json = JSON.stringify(data, null, 2);
+        ctx.files["src/main/resources/addon-config.json"] = json;
+        return kb(json.length);
+      });
+
+    }).then(function () {
+      return run(onStep, "Code des équipes", function () {
+        const teams = ctx.teams = teamsOf(s);
+        if (!teams.length) return "aucune équipe : étape ignorée";
+        ctx.files[JAVA + "AddonTeams.java"] = JavaGen.teamsEnum(teams);
+        return "AddonTeams.java (" + teams.map(function (t) { return t.constant; }).join(", ") + ")";
+      });
+
+    }).then(function () {
+      return run(onStep, "Code des rôles et des pouvoirs", function () {
+        const roles = rolesOf(s, ctx.teams);
+        if (!roles.length) return "aucun rôle : étape ignorée";
+        ctx.files[JAVA + "AddonRoles.java"] = JavaGen.rolesEnum(roles);
+        let powers = 0;
+        roleClassesOf(s, roles).forEach(function (c) {
+          ctx.files[JAVA + "roles/" + c.constant + ".java"] = JavaGen.roleClass({
+            constant: c.constant, displayName: c.displayName, noFall: c.noFall, effects: c.effects,
+            powers: c.powers.map(function (p) { return { className: p.className, item: p.kind === "ITEM" }; }) });
+          c.powers.forEach(function (p) {
+            ctx.files[JAVA + "powers/" + p.className.split("/").pop() + ".java"] = JavaGen.powerClass(p);
+            powers++;
+          });
+        });
+        return roles.length + " rôle(s), " + powers + " pouvoir(s) : AddonRoles.java, roles/, powers/";
+      });
+
+    }).then(function () {
+      return run(onStep, "Fichiers Gradle et mode d'emploi", function () {
+        const g = gradleFiles(s.addonName);
+        Object.keys(g).forEach(function (path) { ctx.files[path] = g[path]; });
+        return Object.keys(g).join(", ");
+      });
+
+    }).then(function () {
+      return run(onStep, "Assemblage du .zip", function () {
+        const zip = new JSZip();
+        Object.keys(ctx.files).sort().forEach(function (path) { zip.file(root(path), ctx.files[path]); });
+        ctx.count = Object.keys(ctx.files).length;
+        return zip.generateAsync({ type: "blob", compression: "DEFLATE", mimeType: "application/zip" },
+          function (meta) { onStep({ label: "Assemblage du .zip", state: "progress", detail: Math.round(meta.percent) + " %" }); })
+          .then(function (blob) { ctx.blob = blob; return ctx.count + " fichiers, " + kb(blob.size); });
+      });
+
+    }).then(function () {
+      onStep({ label: "Contenu du projet", state: "info", detail: Object.keys(ctx.files).sort().join(" · ") });
+      return ctx.blob;
+    });
+  }
+
+  return { build: build, buildProject: buildProject, constName: constName, commandsYaml: commandsYaml };
 })();
