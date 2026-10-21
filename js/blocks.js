@@ -6,11 +6,12 @@
  *
  * Programme affiché :
  *   Quand le joueur utilise <objet>
- *     si clic gauche | si clic droit | si clic gauche ou clic droit      (blocs « Contrôle »)
+ *     si ⬡ alors            (bloc « Contrôle » ; l'emplacement ⬡ reçoit un capteur de clic)
+ *       ⬡ clic gauche | ⬡ clic droit | ⬡ clic gauche ou clic droit      (capteurs, catégorie « Capteurs »)
  *       viser un joueur, téléportations, lancer un projectile (+ à l'impact), effets, cooldown du clic
  *
  * Ajout : glisser un bloc de la palette vers le script, ou cliquer dessus (il va dans la zone sélectionnée, utile au doigt).
- * Suppression : bouton ✕ du bloc, ou le glisser vers la palette.
+ * Suppression : bouton ✕ du bloc, ou le glisser vers la palette. Bouton « Plein écran » pour coder plus à l'aise.
  */
 const BlockEditor = (function () {
   "use strict";
@@ -25,11 +26,13 @@ const BlockEditor = (function () {
     { id: "operators", name: "Cooldown", color: "#59C059" }
   ];
 
-  // Blocs : zone = où ils peuvent aller (root = script principal, branch = dans un « si clic », impact = dans « à l'impact »)
+  // Blocs. zone = où ils vont : root (script principal), cond (emplacement ⬡ d'un « si »), branch (dans un « si »),
+  // impact (dans « à l'impact » d'un projectile), both (branch ou impact)
   const DEF = {
-    click_left: { cat: "control", zone: "root", click: "LEFT", palette: "si clic gauche" },
-    click_right: { cat: "control", zone: "root", click: "RIGHT", palette: "si clic droit" },
-    click_any: { cat: "control", zone: "root", click: "ANY", palette: "si clic gauche ou clic droit" },
+    if: { cat: "control", zone: "root", palette: "si ⬡ alors" },
+    sensLeft: { cat: "sensing", zone: "cond", click: "LEFT", palette: "clic gauche" },
+    sensRight: { cat: "sensing", zone: "cond", click: "RIGHT", palette: "clic droit" },
+    sensAny: { cat: "sensing", zone: "cond", click: "ANY", palette: "clic gauche ou clic droit" },
     aim: { cat: "sensing", zone: "branch", palette: "viser un joueur à 30 blocs max" },
     tpBehind: { cat: "motion", zone: "branch", main: true, palette: "me téléporter derrière le joueur visé" },
     tpAround: { cat: "motion", zone: "branch", main: true, palette: "me téléporter autour du joueur visé" },
@@ -40,8 +43,8 @@ const BlockEditor = (function () {
     effect: { cat: "looks", zone: "both", palette: "donner un effet" },
     cooldown: { cat: "operators", zone: "branch", palette: "cooldown de ce clic" }
   };
-  const CLICK_ORDER = { LEFT: 0, ANY: 1, RIGHT: 2 };
-  const CLICK_LABEL = { LEFT: "si clic gauche", RIGHT: "si clic droit", ANY: "si clic gauche ou clic droit" };
+  const SENSOR_OF = { LEFT: "sensLeft", RIGHT: "sensRight", ANY: "sensAny" };
+  const CLICK_NAME = { LEFT: "clic gauche", RIGHT: "clic droit", ANY: "clic gauche ou clic droit" };
   const MAIN_TYPE = { tpBehind: "TP_BEHIND", tpAround: "TP_AROUND", tpToMe: "TP_TO_USER", launch: "LAUNCH" };
   const FIELDS = ["Action", "Aim", "Distance", "TpDistance", "Radius", "Projectile", "ImpactTp", "Zone", "ZoneRadius",
     "ZoneDamage", "ZoneSeconds", "ZoneColor", "Effects", "Cooldown"];
@@ -56,6 +59,7 @@ const BlockEditor = (function () {
   }
   const catOf = function (type) { return CATS.find(function (c) { return c.id === DEF[type].cat; }); };
   const clone = function (v) { return v === undefined ? v : JSON.parse(JSON.stringify(v)); };
+  const isSensor = function (type) { return DEF[type].zone === "cond"; };
 
   // ---------- données <-> programme ----------
 
@@ -82,6 +86,7 @@ const BlockEditor = (function () {
     return blocks;
   }
 
+  /** Programme : { branches: [{ click: "LEFT" | "RIGHT" | "ANY" | null (« si » sans capteur), blocks }] } */
   function read(p, dflt) {
     const branches = [];
     if (p.clickMode === "LEFT_ONLY" || p.clickMode === "DIFFERENT") branches.push({ click: "LEFT", blocks: readBranch(p, "a", dflt) });
@@ -126,9 +131,18 @@ const BlockEditor = (function () {
   function write(p, prog, dflt) {
     const find = function (c) { return prog.branches.find(function (b) { return b.click === c; }); };
     const L = find("LEFT"), R = find("RIGHT"), A = find("ANY");
-    p.clickMode = A ? "BOTH_SAME" : L && R ? "DIFFERENT" : L ? "LEFT_ONLY" : R ? "RIGHT_ONLY" : ""; // "" : aucun clic (refusé à la validation)
+    // un « si » sans capteur rend le pouvoir invalide (clickMode vide) : la validation explique quoi faire
+    const incomplete = prog.branches.some(function (b) { return !b.click; });
+    p.clickMode = incomplete ? "" : A ? "BOTH_SAME" : L && R ? "DIFFERENT" : L ? "LEFT_ONLY" : R ? "RIGHT_ONLY" : "";
     writeBranch(p, "a", A || L, dflt);
     writeBranch(p, "b", R, dflt);
+  }
+
+  // empreinte des réglages des clics : permet de retrouver le programme (avec ses « si » sans capteur) après un redessin
+  function signature(p) {
+    const keys = ["clickMode"];
+    ["a", "b"].forEach(function (pf) { FIELDS.forEach(function (k) { keys.push(pf + k); }); });
+    return JSON.stringify(keys.map(function (k) { return p[k]; }));
   }
 
   // ---------- règles d'ajout ----------
@@ -148,24 +162,36 @@ const BlockEditor = (function () {
     }
   }
 
-  /** Message d'erreur si le bloc ne peut pas aller là (zone = { branch, impact }), sinon "". */
-  function refuse(prog, type, zone, ignoreBlock) {
+  /**
+   * Message d'erreur si le bloc ne peut pas aller là, sinon "".
+   * zone = "root" | { branch, cond: true } | { branch, impact: bool } ; ignore = bloc déplacé (ou « si » dont on retire le capteur)
+   */
+  function refuse(prog, type, zone, ignore) {
     const def = DEF[type];
     if (def.zone === "root") {
-      const clicks = prog.branches.map(function (b) { return b.click; });
-      if (clicks.indexOf(def.click) !== -1) return "Il y a déjà un bloc « " + CLICK_LABEL[def.click] + " ».";
-      if (def.click === "ANY" && clicks.length) return "« si clic gauche ou clic droit » remplace les deux autres : retire d'abord « si clic gauche » / « si clic droit ».";
-      if (def.click !== "ANY" && clicks.indexOf("ANY") !== -1) return "Retire d'abord « si clic gauche ou clic droit » pour séparer les clics.";
+      if (zone !== "root") return "Un bloc « si » se place directement dans le programme, sous « Quand le joueur utilise ».";
+      if (!ignore && prog.branches.length >= 3) return "3 blocs « si » au maximum (clic gauche, clic droit, ou les deux à la fois).";
       return "";
     }
-    if (!zone) return "Glisse ce bloc dans un bloc « si clic … » (ou crée-en un d'abord dans « Contrôle »).";
+    if (isSensor(type)) {
+      if (!zone || zone === "root" || !zone.cond) return "Un capteur de clic se place dans l'emplacement ⬡ d'un bloc « si ».";
+      const branch = prog.branches[zone.branch];
+      if (!branch) return "Ajoute d'abord un bloc « si » (catégorie Contrôle).";
+      if (branch.click && branch !== ignore) return "Ce « si » a déjà un capteur : retire-le d'abord (✕).";
+      const others = prog.branches.filter(function (b) { return b !== branch && b !== ignore && b.click; }).map(function (b) { return b.click; });
+      if (others.indexOf(def.click) !== -1) return "« " + CLICK_NAME[def.click] + " » est déjà utilisé dans un autre « si ».";
+      if (def.click === "ANY" && others.length) return "« clic gauche ou clic droit » remplace les deux autres : retire d'abord les capteurs « clic gauche » / « clic droit ».";
+      if (def.click !== "ANY" && others.indexOf("ANY") !== -1) return "Un autre « si » utilise déjà « clic gauche ou clic droit » : retire-le pour séparer les clics.";
+      return "";
+    }
+    if (!zone || zone === "root" || zone.cond) return "Glisse ce bloc à l'intérieur d'un bloc « si » (ou ajoute d'abord un « si » dans « Contrôle »).";
     const branch = prog.branches[zone.branch];
-    if (!branch) return "Crée d'abord un bloc « si clic … » dans « Contrôle ».";
-    const others = branch.blocks.filter(function (x) { return x !== ignoreBlock; });
+    if (!branch) return "Ajoute d'abord un bloc « si » (catégorie Contrôle).";
+    const others = branch.blocks.filter(function (x) { return x !== ignore; });
     const main = others.find(function (x) { return DEF[x.t].main; });
     if (zone.impact) {
       if (def.zone !== "impact" && type !== "effect") return "Seuls la téléportation à l'impact, la zone de dégâts et les effets vont dans « à l'impact ».";
-      const impact = main ? main.impact.filter(function (x) { return x !== ignoreBlock; }) : [];
+      const impact = main ? main.impact.filter(function (x) { return x !== ignore; }) : [];
       if (type !== "effect" && impact.some(function (x) { return x.t === type; })) return "Ce bloc est déjà dans « à l'impact ».";
       if (type === "effect" && impact.filter(function (x) { return x.t === "effect"; }).length >= 5) return "5 effets maximum par clic.";
       return "";
@@ -181,7 +207,7 @@ const BlockEditor = (function () {
     if (type === "effect" && others.filter(function (x) { return x.t === "effect"; }).length >= 5) return "5 effets maximum par clic.";
     if (type === "cooldown") {
       if (others.some(function (x) { return x.t === "cooldown"; })) return "Ce clic a déjà son cooldown.";
-      if (branch.click === "ANY") return "Avec « si clic gauche ou clic droit », utilise le cooldown commun (sous le programme).";
+      if (branch.click === "ANY") return "Avec « clic gauche ou clic droit », utilise le cooldown commun (sous le programme).";
     }
     return "";
   }
@@ -195,10 +221,19 @@ const BlockEditor = (function () {
    */
   function render(obj, opts) {
     const dflt = opts.dflt;
-    const prog = read(obj, dflt);
+    // le programme est gardé dans le brouillon (hors champs enregistrés) tant que les réglages n'ont pas changé ailleurs
+    const kept = obj._blocks && obj._blocks.sig === signature(obj) ? obj._blocks.prog : null;
+    const prog = kept || read(obj, dflt);
     let selected = prog.branches.length ? { branch: 0, impact: false } : null;
+
     const root = el("div", "row wrap bk-row");
-    root.appendChild(el("span", "name", "Programme du pouvoir"));
+    const top = el("div", "bk-top");
+    top.appendChild(el("span", "name", "Programme du pouvoir"));
+    const full = el("button", "btn dark small bk-fullbtn", "⛶ Plein écran");
+    full.type = "button";
+    full.title = "Afficher le code par blocs en plein écran (Échap pour revenir)";
+    top.appendChild(full);
+    root.appendChild(top);
     const box = el("div", "bk");
     const palette = el("div", "bk-palette");
     const script = el("div", "bk-script");
@@ -210,17 +245,41 @@ const BlockEditor = (function () {
     root.appendChild(msg);
 
     const say = function (text, bad) { msg.textContent = text || ""; msg.classList.toggle("bad", !!bad); };
-    const commit = function () { write(obj, prog, dflt); draw(); };
+    const save = function () { write(obj, prog, dflt); obj._blocks = { sig: signature(obj), prog: prog }; };
+    const commit = function () { save(); draw(); };
+
+    // ---- plein écran : vrai plein écran du navigateur si possible, sinon le bloc recouvre toute la fenêtre ----
+    function setFull(on) {
+      root.classList.toggle("bk-full", on);
+      full.textContent = on ? "✕ Quitter le plein écran" : "⛶ Plein écran";
+      document.body.classList.toggle("bk-noscroll", on);
+    }
+    full.addEventListener("click", function () {
+      const on = !root.classList.contains("bk-full");
+      setFull(on);
+      if (on && root.requestFullscreen) root.requestFullscreen().catch(function () { /* refusé : la fenêtre entière suffit */ });
+      if (!on && document.fullscreenElement === root && document.exitFullscreen) document.exitFullscreen().catch(function () {});
+    });
+    const onFsChange = function () {
+      if (!root.isConnected) { document.removeEventListener("fullscreenchange", onFsChange); return; }
+      if (!document.fullscreenElement && root.classList.contains("bk-full")) setFull(false); // Échap du navigateur
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    root.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && root.classList.contains("bk-full") && !document.fullscreenElement) setFull(false);
+    });
 
     // ---- palette ----
     CATS.forEach(function (cat) {
       palette.appendChild(el("p", "bk-cat", cat.name)).style.color = cat.color;
       Object.keys(DEF).filter(function (t) { return DEF[t].cat === cat.id; }).forEach(function (type) {
-        const b = el("button", "bk-block bk-pal" + (DEF[type].zone === "root" || type === "launch" ? " bk-cshape" : ""), DEF[type].palette);
+        const shape = type === "if" || type === "launch" ? " bk-cshape" : isSensor(type) ? " bk-hex" : "";
+        const b = el("button", "bk-block bk-pal" + shape, DEF[type].palette);
         b.type = "button";
         b.style.setProperty("--c", cat.color);
         b.draggable = true;
-        b.title = "Glisse ce bloc dans le programme, ou clique dessus pour l'ajouter à la zone sélectionnée";
+        b.title = isSensor(type) ? "Capteur : glisse-le dans l'emplacement ⬡ d'un « si » (ou clique dessus)"
+          : "Glisse ce bloc dans le programme, ou clique dessus pour l'ajouter à la zone sélectionnée";
         b.addEventListener("dragstart", function (e) { dragging = { mode: "new", type: type }; e.dataTransfer.setData("text/plain", type); e.dataTransfer.effectAllowed = "copyMove"; });
         b.addEventListener("dragend", function () { dragging = null; clearHints(); });
         b.addEventListener("click", function () { addByClick(type); });
@@ -245,93 +304,135 @@ const BlockEditor = (function () {
     function clearHints() { script.querySelectorAll(".bk-over").forEach(function (n) { n.classList.remove("bk-over"); }); }
 
     // ---- opérations ----
-    function locate(ref) { // ref = { branch, index, impact? (index dans impact) }
+    // ref = { branch } (le « si »), { branch, cond: true } (son capteur), { branch, index } ou { branch, index, impactIndex }
+    function typeOf(ref) {
+      if (ref.cond) return SENSOR_OF[prog.branches[ref.branch].click];
+      if (ref.index === undefined) return "if";
+      return locate(ref).item.t;
+    }
+    function locate(ref) {
       const b = prog.branches[ref.branch];
       if (ref.index === undefined) return { list: prog.branches, item: b };
       if (ref.impactIndex !== undefined) { const l = mainOf(b).impact; return { list: l, item: l[ref.impactIndex] }; }
       return { list: b.blocks, item: b.blocks[ref.index] };
     }
     function remove(ref) {
+      if (ref.cond) { prog.branches[ref.branch].click = null; return; }
       const at = locate(ref);
       at.list.splice(at.list.indexOf(at.item), 1);
       if (ref.index === undefined) selected = prog.branches.length ? { branch: 0, impact: false } : null;
     }
-    function insert(type, zone, before, moving) {
-      const why = refuse(prog, type, zone, moving ? moving.item : null);
+    /** Ajoute (ou déplace, si from est donné) un bloc ; retourne false avec un message si c'est impossible. */
+    function insert(type, zone, before, from) {
+      const ignore = from ? (from.cond || from.index === undefined ? prog.branches[from.branch] : locate(from).item) : null;
+      const why = refuse(prog, type, zone, ignore);
       if (why) { say(why, true); return false; }
-      if (DEF[type].zone === "root") {
-        // les clics restent toujours dans le même ordre : gauche, gauche ou droit, droit
-        if (!moving) prog.branches.push({ click: DEF[type].click, blocks: [] });
-        prog.branches.sort(function (x, y) { return CLICK_ORDER[x.click] - CLICK_ORDER[y.click]; });
-        selected = { branch: prog.branches.findIndex(function (b) { return b.click === DEF[type].click; }), impact: false };
+      if (type === "if") {
+        const branch = from ? prog.branches.splice(from.branch, 1)[0] : { click: null, blocks: [] };
+        let at = before === undefined ? prog.branches.length : before;
+        if (from && from.branch < at) at--;
+        prog.branches.splice(at, 0, branch);
+        selected = { branch: at, impact: false };
+        if (!from) say("Place maintenant un capteur de clic (catégorie Capteurs) dans l'emplacement ⬡ du « si ».");
         return true;
       }
-      const block = moving ? moving.item : newBlock(type, dflt);
-      {
-        const branch = prog.branches[zone.branch];
-        if (moving) moving.list.splice(moving.list.indexOf(moving.item), 1);
-        // un projectile ajouté à un clic qui donnait des effets : les effets passent « à l'impact »
-        if (type === "launch" && !moving) {
-          const effects = branch.blocks.filter(function (x) { return x.t === "effect"; });
-          if (effects.length) {
-            branch.blocks = branch.blocks.filter(function (x) { return x.t !== "effect"; });
-            effects.forEach(function (x) { x.who = "USER"; block.impact.push(x); });
-            say("Les effets de ce clic ont été placés dans « à l'impact ».");
-          }
-        }
-        const target = zone.impact ? mainOf(branch).impact : branch.blocks;
-        target.splice(before === undefined || before > target.length ? target.length : before, 0, block);
-        selected = { branch: zone.branch, impact: type === "launch" ? true : zone.impact };
+      if (isSensor(type)) {
+        if (from) prog.branches[from.branch].click = null;
+        prog.branches[zone.branch].click = DEF[type].click;
+        selected = { branch: zone.branch, impact: false };
+        return true;
       }
+      const branch = prog.branches[zone.branch];
+      const block = from ? locate(from).item : newBlock(type, dflt);
+      if (from) { const at = locate(from); at.list.splice(at.list.indexOf(at.item), 1); }
+      // un projectile ajouté à un clic qui donnait des effets : les effets passent « à l'impact »
+      if (type === "launch" && !from) {
+        const effects = branch.blocks.filter(function (x) { return x.t === "effect"; });
+        if (effects.length) {
+          branch.blocks = branch.blocks.filter(function (x) { return x.t !== "effect"; });
+          effects.forEach(function (x) { x.who = "USER"; block.impact.push(x); });
+          say("Les effets de ce clic ont été placés dans « à l'impact ».");
+        }
+      }
+      const target = zone.impact ? mainOf(branch).impact : branch.blocks;
+      target.splice(before === undefined || before > target.length ? target.length : before, 0, block);
+      selected = { branch: zone.branch, impact: type === "launch" ? true : zone.impact };
       return true;
     }
     function addByClick(type) {
       say("");
+      if (type === "if") { if (insert("if", "root")) commit(); return; }
+      if (isSensor(type)) {
+        // dans le « si » sélectionné s'il est vide, sinon le premier « si » vide, sinon un nouveau « si »
+        let i = selected && prog.branches[selected.branch] && !prog.branches[selected.branch].click ? selected.branch
+          : prog.branches.findIndex(function (b) { return !b.click; });
+        if (i === -1) {
+          const why = refuse(prog, "if", "root") || refuse({ branches: prog.branches.concat([{ click: null, blocks: [] }]) }, type, { branch: prog.branches.length, cond: true });
+          if (why) return say(why, true);
+          prog.branches.push({ click: null, blocks: [] });
+          i = prog.branches.length - 1;
+        }
+        if (insert(type, { branch: i, cond: true })) commit();
+        return;
+      }
       let zone = selected;
       if (DEF[type].zone === "impact") {
         // va dans « à l'impact » du clic sélectionné, sinon du premier clic qui lance un projectile
-        const order = selected ? [selected.branch].concat(prog.branches.map(function (b, i) { return i; })) : prog.branches.map(function (b, i) { return i; });
-        const i = order.find(function (k) { const m = mainOf(prog.branches[k]); return m && m.t === "launch"; });
+        const order = (selected ? [selected.branch] : []).concat(prog.branches.map(function (b, i) { return i; }));
+        const i = order.find(function (k) { const m = prog.branches[k] && mainOf(prog.branches[k]); return m && m.t === "launch"; });
         zone = i === undefined ? null : { branch: i, impact: true };
-        if (!zone) return say("Ajoute d'abord « lancer un projectile » dans un clic.", true);
-      } else if (type === "effect" && zone && !zone.impact) {
+        if (!zone) return say("Ajoute d'abord « lancer un projectile » dans un « si ».", true);
+      } else if (type === "effect" && zone && !zone.impact && prog.branches[zone.branch]) {
         const m = mainOf(prog.branches[zone.branch]);
         if (m && m.t === "launch") zone = { branch: zone.branch, impact: true };
       } else if (zone && zone.impact && type !== "effect") {
         zone = { branch: zone.branch, impact: false };
       }
-      if (insert(type, DEF[type].zone === "root" ? null : zone)) commit();
+      if (insert(type, zone)) commit();
     }
 
-    // zone de dépôt : root (liste des « si clic »), corps d'un clic, ou « à l'impact »
+    // zone de dépôt : "root" (liste des « si »), { branch, cond } (emplacement ⬡), corps d'un « si » ou « à l'impact »
+    // un « si » ne se dépose que dans le programme ; tout autre bloc est accepté partout et, s'il n'a rien à faire là,
+    // refusé avec un message qui explique où le mettre (ex. un capteur lâché dans le corps d'un « si »)
+    function accepts(zone, type) {
+      return type === "if" ? zone === "root" : true;
+    }
     function dropZone(node, zone, before) {
       node.addEventListener("dragover", function (e) {
         if (!dragging) return;
-        const type = dragging.mode === "new" ? dragging.type : locate(dragging.ref).item.t || DEF_CLICK(locate(dragging.ref).item);
-        const isRoot = zone === "root";
-        if ((DEF[type].zone === "root") !== isRoot) return;
+        const type = dragging.mode === "new" ? dragging.type : typeOf(dragging.ref);
+        if (!accepts(zone, type)) return;
         e.preventDefault(); e.stopPropagation();
         clearHints(); node.classList.add("bk-over");
       });
       node.addEventListener("dragleave", function () { node.classList.remove("bk-over"); });
       node.addEventListener("drop", function (e) {
         if (!dragging) return;
+        const type = dragging.mode === "new" ? dragging.type : typeOf(dragging.ref);
+        if (!accepts(zone, type)) return;
         e.preventDefault(); e.stopPropagation(); clearHints();
         say("");
-        if (dragging.mode === "new") {
-          if (insert(dragging.type, zone === "root" ? null : zone, before)) commit();
-        } else {
-          const at = locate(dragging.ref);
-          const type = at.item.t || DEF_CLICK(at.item);
-          if (insert(type, zone === "root" ? null : zone, before, at)) commit();
-        }
+        if (insert(type, zone, before, dragging.mode === "move" ? dragging.ref : null)) commit();
         dragging = null;
       });
     }
-    const DEF_CLICK = function (branch) { return branch.click === "LEFT" ? "click_left" : branch.click === "RIGHT" ? "click_right" : "click_any"; };
+    function draggableAs(node, ref, label) {
+      node.draggable = true;
+      node.addEventListener("dragstart", function (e) {
+        if (e.target !== node) return;
+        e.stopPropagation(); dragging = { mode: "move", ref: ref }; e.dataTransfer.setData("text/plain", label); e.dataTransfer.effectAllowed = "move";
+      });
+      node.addEventListener("dragend", function () { dragging = null; clearHints(); });
+    }
+    function closeButton(title, onClick) {
+      const x = el("button", "bk-x", "✕");
+      x.type = "button"; x.title = title; x.setAttribute("aria-label", title);
+      x.addEventListener("click", function (e) { e.stopPropagation(); onClick(); });
+      return x;
+    }
 
     // ---- champs dans les blocs ----
-    function num(block, key, min, max, step, onBad) {
+    function num(block, key, min, max, step) {
       const n = el("input", "bk-in");
       n.type = "number"; n.min = min; n.max = max; n.step = step || 1;
       n.value = block[key];
@@ -339,23 +440,26 @@ const BlockEditor = (function () {
         level: "niveau", damage: "dégâts en cœurs" }[key] || key);
       const check = function () { n.classList.toggle("bad", !(n.valueAsNumber >= min && n.valueAsNumber <= max) || (step === 1 && !Number.isInteger(n.valueAsNumber))); };
       check();
-      n.addEventListener("input", function () { block[key] = n.valueAsNumber; check(); write(obj, prog, dflt); if (onBad) onBad(); });
+      n.addEventListener("input", function () { block[key] = n.valueAsNumber; check(); save(); });
       return n;
     }
     function choice(block, key, options) { // options : [[valeur, libellé], ...]
       const s = el("select", "bk-sel");
       options.forEach(function (o) { const op = el("option", "", o[1]); op.value = o[0]; s.appendChild(op); });
       s.value = block[key];
-      s.addEventListener("change", function () { block[key] = s.value; write(obj, prog, dflt); });
+      s.addEventListener("change", function () { block[key] = s.value; save(); });
       return s;
     }
     const t = function (text) { return el("span", "bk-t", text); };
+    const separateClicks = function () {
+      const clicks = prog.branches.map(function (b) { return b.click; });
+      return clicks.indexOf("LEFT") !== -1 && clicks.indexOf("RIGHT") !== -1;
+    };
 
     function blockNode(block, ref, branch) {
       const type = block.t;
-      const cat = catOf(type);
       const node = el("div", "bk-block" + (type === "launch" ? " bk-cshape" : ""));
-      node.style.setProperty("--c", cat.color);
+      node.style.setProperty("--c", catOf(type).color);
       const line = el("div", "bk-line");
       node.appendChild(line);
       const add = function (x) { line.appendChild(typeof x === "string" ? t(x) : x); };
@@ -394,27 +498,17 @@ const BlockEditor = (function () {
         }
         case "cooldown":
           add("attendre"); add(num(block, "seconds", 1, 3600, 1)); add("s avant de réutiliser ce clic");
-          if (!(prog.branches.length === 2 && branch.click !== "ANY")) node.appendChild(el("div", "bk-note", "Sans effet tant qu'il n'y a pas un clic gauche ET un clic droit : utilise le cooldown commun."));
+          if (!separateClicks() || branch.click === "ANY") node.appendChild(el("div", "bk-note", "Sans effet tant qu'il n'y a pas un « si clic gauche » ET un « si clic droit » : sinon, utilise le cooldown commun."));
           break;
       }
-      const x = el("button", "bk-x", "✕");
-      x.type = "button"; x.title = "Supprimer ce bloc"; x.setAttribute("aria-label", "Supprimer ce bloc");
-      x.addEventListener("click", function (e) { e.stopPropagation(); remove(ref); say("Bloc supprimé."); commit(); });
-      line.appendChild(x);
-      node.draggable = true;
-      node.addEventListener("dragstart", function (e) {
-        if (e.target !== node) return;
-        e.stopPropagation(); dragging = { mode: "move", ref: ref }; e.dataTransfer.setData("text/plain", type); e.dataTransfer.effectAllowed = "move";
-      });
-      node.addEventListener("dragend", function () { dragging = null; clearHints(); });
+      line.appendChild(closeButton("Supprimer ce bloc", function () { remove(ref); say("Bloc supprimé."); commit(); }));
+      draggableAs(node, ref, type);
       if (type === "launch") {
         const body = el("div", "bk-body bk-impact");
-        const sel = selected && selected.branch === ref.branch && selected.impact;
-        if (sel) body.classList.add("bk-sel-zone");
+        if (selected && selected.branch === ref.branch && selected.impact) body.classList.add("bk-sel-zone");
         body.appendChild(el("div", "bk-label", "à l'impact :"));
         block.impact.forEach(function (child, j) {
-          const r = { branch: ref.branch, index: ref.index, impactIndex: j };
-          const n = blockNode(child, r, branch);
+          const n = blockNode(child, { branch: ref.branch, index: ref.index, impactIndex: j }, branch);
           dropZone(n, { branch: ref.branch, impact: true }, j);
           body.appendChild(n);
         });
@@ -428,6 +522,25 @@ const BlockEditor = (function () {
       return node;
     }
 
+    // emplacement ⬡ d'un « si » : vide (à remplir) ou contenant son capteur de clic
+    function condNode(branch, i) {
+      const slot = el("span", "bk-cond");
+      if (branch.click) {
+        const sensor = el("span", "bk-block bk-hex bk-sensor");
+        sensor.style.setProperty("--c", catOf(SENSOR_OF[branch.click]).color);
+        sensor.appendChild(t(CLICK_NAME[branch.click]));
+        sensor.appendChild(closeButton("Retirer ce capteur", function () { remove({ branch: i, cond: true }); say("Capteur retiré : place un autre capteur dans le « si »."); commit(); }));
+        draggableAs(sensor, { branch: i, cond: true }, "capteur");
+        slot.appendChild(sensor);
+      } else {
+        slot.classList.add("bk-cond-empty");
+        slot.title = "Glisse ici un capteur : clic gauche, clic droit, ou clic gauche ou clic droit (catégorie Capteurs)";
+        slot.appendChild(t("capteur ?"));
+      }
+      dropZone(slot, { branch: i, cond: true });
+      return slot;
+    }
+
     function draw() {
       script.replaceChildren();
       const hat = el("div", "bk-block bk-hat");
@@ -435,21 +548,15 @@ const BlockEditor = (function () {
       hat.appendChild(el("div", "bk-line")).appendChild(t("Quand le joueur utilise : " + opts.itemName(obj.powerItem)));
       script.appendChild(hat);
       prog.branches.forEach(function (branch, i) {
-        const c = el("div", "bk-block bk-cshape bk-click");
+        const c = el("div", "bk-block bk-cshape bk-if" + (branch.click ? "" : " bk-incomplete"));
         c.style.setProperty("--c", "#FFAB19");
         const head = el("div", "bk-line");
-        head.appendChild(t(CLICK_LABEL[branch.click]));
-        const x = el("button", "bk-x", "✕");
-        x.type = "button"; x.title = "Supprimer ce clic et ses blocs"; x.setAttribute("aria-label", "Supprimer ce clic");
-        x.addEventListener("click", function (e) { e.stopPropagation(); remove({ branch: i }); say("Clic supprimé."); commit(); });
-        head.appendChild(x);
+        head.appendChild(t("si"));
+        head.appendChild(condNode(branch, i));
+        head.appendChild(t("alors"));
+        head.appendChild(closeButton("Supprimer ce « si » et ses blocs", function () { remove({ branch: i }); say("Bloc « si » supprimé."); commit(); }));
         c.appendChild(head);
-        c.draggable = true;
-        c.addEventListener("dragstart", function (e) {
-          if (e.target !== c) return;
-          dragging = { mode: "move", ref: { branch: i } }; e.dataTransfer.setData("text/plain", "click"); e.dataTransfer.effectAllowed = "move";
-        });
-        c.addEventListener("dragend", function () { dragging = null; clearHints(); });
+        draggableAs(c, { branch: i }, "si");
         const body = el("div", "bk-body");
         if (selected && selected.branch === i && !selected.impact) body.classList.add("bk-sel-zone");
         branch.blocks.forEach(function (block, j) {
@@ -457,7 +564,7 @@ const BlockEditor = (function () {
           dropZone(n, { branch: i, impact: false }, j);
           body.appendChild(n);
         });
-        body.appendChild(el("div", "bk-slot", branch.blocks.length ? "+" : "glisse ici les blocs de ce clic"));
+        body.appendChild(el("div", "bk-slot", branch.blocks.length ? "+" : "glisse ici les blocs à exécuter"));
         dropZone(body, { branch: i, impact: false });
         body.dataset.zone = i + ":branch";
         body.addEventListener("click", function () { select({ branch: i, impact: false }); });
@@ -466,12 +573,12 @@ const BlockEditor = (function () {
         dropZone(c, "root", i);
         script.appendChild(c);
       });
-      const end = el("div", "bk-slot bk-rootslot", prog.branches.length ? "+ « si clic … »" : "glisse ici un bloc « si clic gauche », « si clic droit » ou « si clic gauche ou clic droit » (catégorie Contrôle)");
+      const end = el("div", "bk-slot bk-rootslot", prog.branches.length ? "+ « si »" : "glisse ici un bloc « si » (catégorie Contrôle), puis un capteur de clic dans son emplacement ⬡");
       dropZone(end, "root");
       script.appendChild(end);
     }
 
-    write(obj, prog, dflt); // normalise le brouillon (mêmes valeurs que le formulaire)
+    save(); // normalise le brouillon (mêmes valeurs que le formulaire)
     draw();
     return root;
   }
