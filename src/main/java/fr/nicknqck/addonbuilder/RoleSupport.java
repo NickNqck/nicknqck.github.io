@@ -114,8 +114,18 @@ public final class RoleSupport {
      * Les effets et les pouvoirs sont repris exactement comme dans AutomaticDesc.createFullAutomaticDesc.
      */
     public static TextComponent description(final Object role, String mode) {
+        return component(role, mode, "");
+    }
+
+    /**
+     * Description d'un rôle : comme AutomaticDesc.createFullAutomaticDesc (effets, pouvoirs, NoFall permanent), plus les
+     * lignes en plus (extra, séparées par \n : résurrection...) et, pour un NoFall limité au jour / à la nuit, la bonne
+     * précision à la place de « de manière permanente » (mandataire IRole qui n'est pas un RoleBase, voir plus haut).
+     */
+    public static TextComponent component(final Object role, String noFall, String extra) {
         final IRole real = (IRole) role;
-        IRole view = (IRole) Proxy.newProxyInstance(IRole.class.getClassLoader(), new Class<?>[]{IRole.class}, new InvocationHandler() {
+        final boolean timed = "DAY".equals(noFall) || "NIGHT".equals(noFall);
+        IRole view = !timed ? real : (IRole) Proxy.newProxyInstance(IRole.class.getClassLoader(), new Class<?>[]{IRole.class}, new InvocationHandler() {
             @Override
             public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
                 try {
@@ -125,12 +135,17 @@ public final class RoleSupport {
                 }
             }
         });
-        String when = "DAY".equals(mode) ? "le\u00a7c jour" : "la\u00a7c nuit";
-        return new AutomaticDesc(view)
-                .addEffects(view.getEffects())
-                .setPowers(view.getPowers())
-                .addCustomLine("\u00a77Vous poss\u00e9dez\u00a7a No Fall\u00a77 " + when)
-                .getText();
+        AutomaticDesc desc = new AutomaticDesc(view).addEffects(view.getEffects()).setPowers(view.getPowers());
+        if (timed) desc.addCustomLine("\u00a77Vous poss\u00e9dez\u00a7a No Fall\u00a77 " + ("DAY".equals(noFall) ? "le\u00a7c jour" : "la\u00a7c nuit"));
+        if (extra != null && !extra.isEmpty()) {
+            for (String line : extra.split("\n")) desc.addCustomLine(line);
+        }
+        return desc.getText();
+    }
+
+    /** Résurrection une fois par partie (option du rôle) : voir ReviveListener. */
+    public static void revive(Object role, int heartsLost, int radius) {
+        registerListener(new ReviveListener((RoleBase) role, heartsLost, radius));
     }
 
     /** Crée le pouvoir (classe générée, constructeur Power(RoleBase)) puis l'ajoute au rôle avec addPower(Power). */

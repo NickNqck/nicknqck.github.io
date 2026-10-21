@@ -1009,7 +1009,16 @@
     if (ed.sub) return renderSubEditor(menu);
     menu.appendChild(el("h2", "q", ed.index < 0 ? col.createLabel : "Modifier : " + state[col.id][ed.index].name));
     const rows = el("div", "rows");
-    col.fields.forEach(function (f) { rows.appendChild(control(f, ed.draft)); });
+    // champs conditionnels (showIf, ex. réglages de la résurrection) : affichés seulement quand ils servent
+    const shown = function () { return col.fields.filter(function (f) { return visible(f, ed.draft); }); };
+    const before = shown().map(function (f) { return f.id; }).join();
+    shown().forEach(function (f) { rows.appendChild(control(f, ed.draft)); });
+    let redrawn = false;
+    rows.addEventListener("change", function () {
+      if (redrawn || shown().map(function (f) { return f.id; }).join() === before) return;
+      redrawn = true;
+      render();
+    });
     menu.appendChild(rows);
     const err = el("p", "err");
     menu.appendChild(err);
@@ -1064,7 +1073,7 @@
       section(col.label + " (" + state[col.id].length + "/" + col.max + ")", state[col.id].map(function (e) {
         const r = el("div", "sumrow");
         r.appendChild(el("strong", "", e.name));
-        (col.nameTemplate ? [] : col.fields.slice(1)).forEach(function (f) {
+        (col.nameTemplate ? [] : col.fields.slice(1).filter(function (f) { return visible(f, e); })).forEach(function (f) {
           r.appendChild(document.createTextNode(" · "));
           if (f.type === "color") {
             const c = COLORS.find(function (x) { return x.code === e[f.id]; });

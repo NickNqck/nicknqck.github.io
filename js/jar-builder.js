@@ -71,7 +71,15 @@ const JarBuilder = (function () {
       if (!Number.isInteger(r.nmb) || r.nmb < 0 || r.nmb > 120) throw new Error("Numéro invalide pour le rôle " + r.name);
       const noFall = r.noFall === undefined ? "NONE" : r.noFall;
       if (["NONE", "PERMANENT", "DAY", "NIGHT"].indexOf(noFall) === -1) throw new Error("NoFall invalide pour le rôle " + r.name);
-      return { displayName: r.name, effects: r.effects || [], powers: r.powers || [], noFall: noFall, constant: constant, teamClass: teamClass, teamConst: ref[2], mdj: r.mdj, nmb: r.nmb, material: r.item,
+      // résurrection une fois par partie : cœurs max perdus et rayon de réapparition
+      let revive = null;
+      if (r.revive === true) {
+        const hearts = r.reviveHearts === undefined ? 2 : r.reviveHearts, radius = r.reviveRadius === undefined ? 50 : r.reviveRadius;
+        if (!Number.isInteger(hearts) || hearts < 0 || hearts > 9) throw new Error("Cœurs perdus invalides pour le rôle " + r.name);
+        if (!Number.isInteger(radius) || radius < 0 || radius > 200) throw new Error("Rayon de réapparition invalide pour le rôle " + r.name);
+        revive = { hearts: hearts, radius: radius };
+      } else if (r.revive !== undefined && r.revive !== false) throw new Error("Résurrection invalide pour le rôle " + r.name);
+      return { displayName: r.name, effects: r.effects || [], powers: r.powers || [], noFall: noFall, revive: revive, constant: constant, teamClass: teamClass, teamConst: ref[2], mdj: r.mdj, nmb: r.nmb, material: r.item,
         itemName: "\u00a7" + code + (bold ? "\u00a7l" : "") + r.name, gDesign: gDesign };
     });
   }
@@ -231,7 +239,15 @@ const JarBuilder = (function () {
         return { type: e.effect, ticks: e.when === "AT_KILL" ? e.seconds * 20 : 60, amp: e.level - 1, when: e.when };
       });
       if (effects.length > 15) throw new Error("Plus de 15 effets pour le rôle " + r.constant);
-      return { constant: r.constant, displayName: r.displayName, effects: effects, powers: powersOf(r, settings), noFall: r.noFall };
+      // lignes ajoutées à la description du rôle (AutomaticDesc.addCustomLine)
+      const extra = [];
+      if (r.revive) {
+        extra.push("\u00a77Une fois par partie, \u00e0 votre mort, vous\u00a7a ressuscitez\u00a77" +
+          (r.revive.radius > 0 ? " \u00e0 moins de\u00a7c " + r.revive.radius + " blocs\u00a77" : " sur place") +
+          (r.revive.hearts > 0 ? " en perdant\u00a7c " + r.revive.hearts + "\u2764 permanent" + (r.revive.hearts > 1 ? "s" : "") + "\u00a77." : "."));
+      }
+      return { constant: r.constant, displayName: r.displayName, effects: effects, powers: powersOf(r, settings), noFall: r.noFall,
+        revive: r.revive, extra: extra.join("\n") };
     });
   }
 
@@ -340,7 +356,7 @@ const JarBuilder = (function () {
         classes.forEach(function (c) {
           ctx.zip.file(ROLE_PACKAGE + c.constant + ".class", ClassGen.roleClass({
             className: ROLE_PACKAGE + c.constant, enumClass: ROLES_CLASS, constant: c.constant,
-            displayName: c.displayName, support: SUPPORT, effects: c.effects, noFall: c.noFall,
+            displayName: c.displayName, support: SUPPORT, effects: c.effects, noFall: c.noFall, revive: c.revive, extra: c.extra,
             powers: c.powers.map(function (p) { return { className: p.className.replace(/\//g, "."), item: p.kind === "ITEM" }; }) }), { binary: true });
           c.powers.forEach(function (p) { ctx.zip.file(p.className + ".class", ClassGen.powerClass(p), { binary: true }); });
         });
@@ -485,7 +501,7 @@ const JarBuilder = (function () {
         let powers = 0;
         roleClassesOf(s, roles).forEach(function (c) {
           ctx.files[JAVA + "roles/" + c.constant + ".java"] = JavaGen.roleClass({
-            constant: c.constant, displayName: c.displayName, noFall: c.noFall, effects: c.effects,
+            constant: c.constant, displayName: c.displayName, noFall: c.noFall, effects: c.effects, revive: c.revive, extra: c.extra,
             powers: c.powers.map(function (p) { return { className: p.className, item: p.kind === "ITEM" }; }) });
           c.powers.forEach(function (p) {
             ctx.files[JAVA + "powers/" + p.className.split("/").pop() + ".java"] = JavaGen.powerClass(p);

@@ -243,11 +243,12 @@ const ClassGen = (function () {
     method(0x0001, "getOriginTeam", "()" + ITEAM, 1, 1,
       [0x2a, 0xb6].concat(m(spec.className, "getRoles", "()" + IROLES), [0xb9],
         u2(P.ref(11, "fr/nicknqck/interfaces/IRoles", "getTeam", "()" + ITEAM)), [1, 0, 0xb0]));
-    if (spec.noFall === "DAY" || spec.noFall === "NIGHT") {
-      // NoFall limité au jour / à la nuit : getText() d'AutomaticDesc écrirait « de manière permanente » dès que isNoFall() est vrai.
-      // La description est donc construite par RoleSupport.description, qui précise le jour ou la nuit à la place.
-      method(0x0001, "getComponent", "()" + TC, 2, 1,
-        [0x2a, 0x13].concat(u2(P.str(spec.noFall)), [0xb8], m(spec.support, "description", "(Ljava/lang/Object;Ljava/lang/String;)" + TC), [0xb0]));
+    if (spec.noFall === "DAY" || spec.noFall === "NIGHT" || spec.extra) {
+      // NoFall limité au jour / à la nuit (getText() d'AutomaticDesc écrirait « de manière permanente ») ou lignes en plus
+      // (résurrection...) : la description est construite par RoleSupport.component(this, noFall, lignes).
+      method(0x0001, "getComponent", "()" + TC, 3, 1,
+        [0x2a, 0x13].concat(u2(P.str(spec.noFall || "NONE")), [0x13], u2(P.str(spec.extra || "")), [0xb8],
+          m(spec.support, "component", "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;)" + TC), [0xb0]));
     } else {
       method(0x0001, "getComponent", "()" + TC, 1, 1,
         [0x2a, 0xb8].concat(m("fr/nicknqck/roles/builder/AutomaticDesc", "createFullAutomaticDesc",
@@ -263,6 +264,11 @@ const ClassGen = (function () {
       code = code.concat([0x2a, 0x13], u2(P.str(cls)), [0xb8],
         m(spec.support, pw.item ? "addItemPower" : "addPower", "(Ljava/lang/Object;Ljava/lang/String;)V"));
     });
+    if (spec.revive) { // RoleSupport.revive(this, cœurs perdus, rayon)
+      if (!Number.isInteger(spec.revive.hearts) || !Number.isInteger(spec.revive.radius)) throw new Error("Résurrection invalide.");
+      code = code.concat([0x2a, 0x11], u2(spec.revive.hearts), [0x11], u2(spec.revive.radius), [0xb8],
+        m(spec.support, "revive", "(Ljava/lang/Object;II)V"));
+    }
     spec.effects.forEach(function (e) {
       if (e.ticks < 1 || e.ticks > 32767 || e.amp < 0 || e.amp > 127) throw new Error("Effet hors limites.");
       code = code.concat([0x2a, 0x13], u2(P.str(e.type)), [0x11], u2(e.ticks), [0x10, e.amp, 0x13], u2(P.str(e.when)),

@@ -110,6 +110,13 @@ const MENU = {
           options: ["NONE", "PERMANENT", "DAY", "NIGHT"],
           labels: { NONE: "Aucune", PERMANENT: "Permanente", DAY: "Seulement le jour", NIGHT: "Seulement la nuit" } },
 
+        // Résurrection (comme Urami de Hantengu) : une fois par partie, la mort est annulée et le joueur réapparaît
+        { type: "toggle", id: "revive", label: "Ressuscite une fois par partie à sa mort", default: false, optional: true },
+        { type: "number", id: "reviveHearts", label: "Cœurs maximum perdus en ressuscitant (permanents)", default: 2, min: 0, max: 9, step: 1,
+          optional: true, showIf: { revive: true } },
+        { type: "number", id: "reviveRadius", label: "Réapparition au hasard à moins de (blocs, 0 = sur place)", default: 50, min: 0, max: 200, step: 1,
+          optional: true, showIf: { revive: true } },
+
         // Effets de potion donnés au propriétaire du rôle (givePotionEffect dans RoleGiven), 15 au maximum.
         // Le même effet peut revenir avec une autre intensité (niveau) ou un autre moment.
         { type: "list", id: "effects", label: "Effets", max: 15, createLabel: "Ajouter un effet",

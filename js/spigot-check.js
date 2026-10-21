@@ -19,6 +19,7 @@ const SpigotCheck = (function () {
       "org/bukkit/projectiles/ProjectileSource", "org/bukkit/plugin/Plugin", "org/bukkit/plugin/PluginManager",
       "org/bukkit/inventory/meta/ItemMeta", "org/bukkit/inventory/Inventory", "org/bukkit/metadata/MetadataValue",
       "org/bukkit/command/CommandExecutor", "org/bukkit/command/TabCompleter",
+      "org/bukkit/inventory/PlayerInventory", "org/bukkit/scheduler/BukkitScheduler",
       "org/bukkit/metadata/Metadatable", "org/bukkit/event/Listener", "org/bukkit/command/CommandSender"],
     class: ["org/bukkit/Location", "org/bukkit/Bukkit", "org/bukkit/inventory/ItemStack", "org/bukkit/potion/PotionEffect",
       "org/bukkit/potion/PotionEffectType", "org/bukkit/scheduler/BukkitRunnable", "org/bukkit/metadata/FixedMetadataValue",

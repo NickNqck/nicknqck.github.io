@@ -17,6 +17,10 @@ const JavaGen = (function () {
     for (const ch of String(s)) {
       const c = ch.codePointAt(0);
       if (ch === '"' || ch === "\\") out += "\\" + ch;
+      // retours à la ligne / tabulations : jamais en \\uXXXX (Java traduit ces séquences AVANT de lire le code)
+      else if (ch === "\n") out += "\\n";
+      else if (ch === "\r") out += "\\r";
+      else if (ch === "\t") out += "\\t";
       else if (c >= 0x20 && c < 0x7f) out += ch;
       else if (c <= 0xffff) out += "\\u" + c.toString(16).padStart(4, "0");
       else { // hors BMP : paire de substitution
@@ -96,11 +100,16 @@ const JavaGen = (function () {
       "fr.nicknqck.roles.builder.RoleBase", "net.md_5.bungee.api.chat.TextComponent", "java.util.UUID",
       PKG + ".AddonRoles", PKG + ".RoleSupport"];
     const timed = spec.noFall === "DAY" || spec.noFall === "NIGHT";
-    if (!timed) imports.push("fr.nicknqck.roles.builder.AutomaticDesc");
+    const custom = timed || !!spec.extra;
+    if (!custom) imports.push("fr.nicknqck.roles.builder.AutomaticDesc");
     const body = [];
     if (spec.noFall && spec.noFall !== "NONE") {
       body.push("        // NoFall " + (spec.noFall === "PERMANENT" ? "permanent" : spec.noFall === "DAY" ? "le jour seulement" : "la nuit seulement"));
       body.push("        RoleSupport.noFall(this, " + lit(spec.noFall) + ");");
+    }
+    if (spec.revive) {
+      body.push("        // une fois par partie, la mort est annulée : réapparition, " + spec.revive.hearts + " cœur(s) max en moins");
+      body.push("        RoleSupport.revive(this, " + spec.revive.hearts + ", " + spec.revive.radius + ");");
     }
     (spec.powers || []).forEach(function (p) {
       const cls = simple(p.className);
@@ -115,9 +124,9 @@ const JavaGen = (function () {
           ", false, false), EffectWhen." + e.when + ");");
       });
     }
-    const component = timed
-      ? "        // NoFall le jour / la nuit : AutomaticDesc écrirait « de manière permanente », RoleSupport précise le moment\n" +
-        "        return RoleSupport.description(this, " + lit(spec.noFall) + ");\n"
+    const component = custom
+      ? "        // description automatique + précisions (NoFall le jour / la nuit, résurrection...), voir RoleSupport.component\n" +
+        "        return RoleSupport.component(this, " + lit(spec.noFall || "NONE") + ", " + lit(spec.extra || "") + ");\n"
       : "        return AutomaticDesc.createFullAutomaticDesc(this);\n";
     return header(PKG + ".roles", imports) + GENERATED +
       "public class " + name + " extends RoleBase {\n\n" +
