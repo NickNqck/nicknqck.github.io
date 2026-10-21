@@ -194,9 +194,9 @@ const MENU = {
 
             // --- Objet à activer : matériau, clic(s) qui l'activent, puis l'action de chaque clic (clickFields) ---
             { type: "item", id: "powerItem", label: "Objet du pouvoir", default: "IRON_SWORD", showIf: { kind: "ITEM" } },
-            // Affichage : programme en blocs (façon Scratch, js/blocks.js) ou formulaire classique ; les deux modifient les mêmes réglages
+            // Affichage : programme en blocs (js/blocks.js) ou formulaire classique ; les deux modifient les mêmes réglages
             { type: "select", id: "editorView", label: "Affichage", default: "BLOCKS", optional: true,
-              options: ["BLOCKS", "FORM"], labels: { BLOCKS: "Blocs (comme Scratch)", FORM: "Formulaire" }, showIf: { kind: "ITEM" } },
+              options: ["BLOCKS", "FORM"], labels: { BLOCKS: "Blocs", FORM: "Formulaire" }, showIf: { kind: "ITEM" } },
             { type: "itemblocks", id: "blocks", label: "Programme du pouvoir", showIf: { kind: "ITEM", editorView: "BLOCKS" } },
             { type: "select", id: "clickMode", label: "Clic(s) qui activent l'objet", default: "RIGHT_ONLY", uiHideIf: BLOCKS_VIEW,
               invalidMessage: "Chaque bloc « si » doit contenir son capteur (catégorie Capteurs) : un clic pour les « si » du programme, « viser un joueur » pour un « si » placé dans un clic. Il faut au moins un « si ».",

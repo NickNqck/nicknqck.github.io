@@ -64,6 +64,8 @@
     { type: "color", id: "authorColor", label: "Couleur de ton pseudo", default: "b" }
   ];
   const SUMMARY = { id: "__summary", type: "summary", label: "Récapitulatif", icon: "☰" };
+  // Thème du site (bouton de l'en-tête) : un réglage comme les autres, donc enregistré dans le .json exporté et repris à l'import
+  const THEME = { type: "select", id: "theme", label: "Thème du site", default: "dark", options: ["dark", "light"] };
   const isIdentity = function (c) { return IDENTITY.some(function (i) { return i.id === c.id; }); };
 
   (function index(node) {
@@ -74,6 +76,8 @@
     });
   })(MENU);
   IDENTITY.forEach(function (c) { items[c.id] = c; state[c.id] = c.default; });
+  items[THEME.id] = THEME;
+  state[THEME.id] = THEME.default;
   items[SUMMARY.id] = SUMMARY;
 
   const $ = function (s) { return document.querySelector(s); };
@@ -814,7 +818,7 @@
       const nm = el("span", "name", isRole ? e.name + "  ·  " + teamLabel(e.team) + " nº " + e.nmb + " · " + (e.effects || []).length + " effet(s) · " + (e.powers || []).length + " pouvoir(s)" : e.name);
       const code = e.color || (isRole && teamOf(e.team) ? teamOf(e.team).code : null);
       const col = code && COLORS.find(function (c) { return c.code === code; });
-      if (col) nm.style.color = col.hex;
+      if (col) { nm.style.color = col.hex; nm.classList.add("mc-text"); }
       row.appendChild(nm);
       const acts = el("div", "acts");
       acts.appendChild(button("btn dark small", "Modifier", function () {
@@ -1077,7 +1081,7 @@
         return r;
       }));
     });
-    const flat = Object.keys(state).filter(function (id) { return !isIdentity(items[id]) && !Array.isArray(state[id]); });
+    const flat = Object.keys(state).filter(function (id) { return !isIdentity(items[id]) && id !== THEME.id && !Array.isArray(state[id]); });
     if (flat.length) section("Autres réglages", flat.map(function (id) { return line(items[id].label, fieldText(items[id], state[id])); }));
     menu.appendChild(box);
     const area = el("div", "buildlog");
@@ -1300,6 +1304,23 @@
     }).then(finish);
   }
 
+  // ---------- Thème clair / sombre ----------
+  function applyTheme() {
+    const light = state[THEME.id] === "light";
+    document.documentElement.setAttribute("data-theme", light ? "light" : "dark");
+    const b = $("#btn-theme");
+    if (!b) return;
+    b.textContent = light ? "☾" : "☀";
+    b.setAttribute("aria-pressed", light ? "true" : "false");
+    b.title = light ? "Passer le site en mode sombre" : "Passer le site en mode clair";
+    b.setAttribute("aria-label", b.title);
+  }
+  if ($("#btn-theme")) $("#btn-theme").addEventListener("click", function () {
+    state[THEME.id] = state[THEME.id] === "light" ? "dark" : "light";
+    applyTheme();
+  });
+  applyTheme();
+
   $("#btn-import").addEventListener("click", function () { $("#file-import").click(); });
 
   $("#file-import").addEventListener("change", function (e) {
@@ -1323,6 +1344,7 @@
         if (v === undefined) ignored++; else { state[key] = v; ok++; }
       });
       renumber();
+      applyTheme();
       path.length = 0;
       editing = null;
       // L'import remplace l'écran de démarrage ; on redemande seulement ce qui manque
