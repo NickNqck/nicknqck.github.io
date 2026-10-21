@@ -185,7 +185,7 @@ final class ItemPowerSupport {
             caller.setTargetDistance(action.distance);
             target = caller.getTarget();
             if (target == null) {
-                player.sendMessage("\u00a7cIl faut viser un joueur \u00e0 moins de\u00a7b " + action.distance + " blocs");
+                player.sendMessage("\u00a7cIl faut viser un joueur \u00e0 moins de " + action.distance + " blocs !"); // ni action ni cooldown
                 return false;
             }
         }

@@ -521,7 +521,7 @@ const BlockEditor = (function () {
     }
 
     // ---- champs dans les blocs ----
-    function num(block, key, min, max, step) {
+    function num(block, key, min, max, step, onInput) {
       const n = el("input", "bk-in");
       n.type = "number"; n.min = min; n.max = max; n.step = step || 1;
       n.value = block[key];
@@ -529,7 +529,7 @@ const BlockEditor = (function () {
         level: "niveau", damage: "dégâts en cœurs" }[key] || key);
       const check = function () { n.classList.toggle("bad", !(n.valueAsNumber >= min && n.valueAsNumber <= max) || (step === 1 && !Number.isInteger(n.valueAsNumber))); };
       check();
-      n.addEventListener("input", function () { block[key] = n.valueAsNumber; check(); save(); });
+      n.addEventListener("input", function () { block[key] = n.valueAsNumber; check(); save(); if (onInput) onInput(); });
       n.addEventListener("click", function (e) { e.stopPropagation(); });
       return n;
     }
@@ -627,10 +627,17 @@ const BlockEditor = (function () {
       const head = el("div", "bk-line");
       head.appendChild(t("si"));
       const condRef = { branch: ref.branch, inner: true, cond: true };
+      // « sinon » fixe du plugin : personne n'est visé -> un message, ni action ni cooldown
+      const otherwise = el("div", "bk-else");
+      const showElse = function () {
+        otherwise.textContent = "sinon : message « Il faut viser un joueur à moins de " +
+          (nested.cond && nested.cond.distance >= 1 ? nested.cond.distance : "x") + " blocs ! » (aucune action, pas de cooldown)";
+      };
+      showElse();
       let slot;
       if (nested.cond) {
         slot = el("span", "bk-cond");
-        slot.appendChild(sensorNode("sensAim", condRef, ["viser un joueur à moins de", num(nested.cond, "distance", 1, 100, 1), "blocs"],
+        slot.appendChild(sensorNode("sensAim", condRef, ["viser un joueur à moins de", num(nested.cond, "distance", 1, 100, 1, showElse), "blocs"],
           function () { remove(condRef); say("Capteur retiré : place « viser un joueur » dans le « si »."); commit(); }));
       } else {
         slot = emptySlot("viser… ?", "Glisse ici le capteur « viser un joueur à moins de … blocs » (catégorie Capteurs)");
@@ -654,7 +661,7 @@ const BlockEditor = (function () {
       body.dataset.zone = keyOf(zone);
       body.addEventListener("click", function (e) { e.stopPropagation(); select(zone); });
       c.appendChild(body);
-      c.appendChild(el("div", "bk-foot"));
+      c.appendChild(otherwise);
       return c;
     }
 

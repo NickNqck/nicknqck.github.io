@@ -383,3 +383,5 @@ body.bk-noscroll { overflow: hidden; }
 /* « si » imbriqué dans un clic (capteur « viser un joueur ») */
 .bk-nested { margin-top: 1px; }
 .bk-sensor .bk-in { width: 3.2rem; }
+/* « sinon » fixe d'un « si viser » (message du plugin quand personne n'est visé) */
+.bk-else { padding: .3rem .6rem .45rem; font-size: .75rem; font-weight: 600; color: #4a3200; }
