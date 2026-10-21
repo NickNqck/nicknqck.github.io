@@ -293,3 +293,65 @@ a.btn { display: inline-block; text-decoration: none; }
 .spignote { min-height: 1.4rem; margin: 0 0 1.2rem; }
 .spignote.good { color: #6fcf8e; }
 .spignote.warnnote { color: var(--gold); }
+
+/* ---------- Éditeur à blocs des pouvoirs d'objet (js/blocks.js), façon Scratch ---------- */
+.bk-row { flex-direction: column; align-items: stretch; }
+.bk { display: grid; grid-template-columns: minmax(170px, 230px) 1fr; gap: .75rem; margin-top: .4rem; }
+.bk-palette { background: #1b1d22; border: 2px solid #3a3d45; border-radius: 6px; padding: .5rem; max-height: 34rem; overflow-y: auto;
+  display: flex; flex-direction: column; gap: .35rem; transition: background .15s; }
+.bk-palette.bk-trash { background: #3a1d1d; border-color: #c94a4a; }
+.bk-cat { margin: .35rem 0 0; font-weight: 700; font-size: .85rem; }
+.bk-script { background: #f4f4f7 radial-gradient(#d9dae0 1px, transparent 1px) 0 0 / 18px 18px; border-radius: 6px; padding: .75rem;
+  min-height: 14rem; color: #fff; overflow-x: auto; }
+.bk-block { --c: #888; position: relative; background: var(--c); color: #fff; border: 1px solid rgba(0,0,0,.18);
+  border-radius: 5px; font: 600 .82rem/1.25 system-ui, sans-serif; text-align: left; margin: 0 0 3px; }
+/* encoche du haut et tenon du bas, comme les pièces de Scratch */
+.bk-block::before { content: ""; position: absolute; left: 14px; top: -1px; width: 16px; height: 5px; background: rgba(0,0,0,.18);
+  border-radius: 0 0 4px 4px; }
+.bk-hat::before { display: none; }
+.bk-hat { border-radius: 14px 14px 5px 5px; padding-top: .2rem; margin-bottom: 4px; color: #3b2a00; }
+.bk-pal { padding: .45rem .6rem; cursor: grab; width: 100%; }
+.bk-pal:active { cursor: grabbing; }
+.bk-pal:hover, .bk-pal:focus-visible { filter: brightness(1.08); outline: 2px solid #fff; outline-offset: 1px; }
+.bk-pal.bk-cshape { border-left-width: 10px; }
+.bk-line { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; padding: .4rem .5rem; cursor: grab; }
+.bk-t { white-space: normal; }
+.bk-in, .bk-sel { background: #fff; color: #333; border: 1px solid rgba(0,0,0,.25); border-radius: 999px; padding: .1rem .45rem;
+  font: 600 .8rem system-ui, sans-serif; }
+.bk-in { width: 4.2rem; text-align: center; }
+.bk-in.bad { background: #ffd2d2; border-color: #c00; }
+.bk-x { margin-left: auto; background: rgba(0,0,0,.2); color: #fff; border: 0; border-radius: 50%; width: 1.4rem; height: 1.4rem;
+  cursor: pointer; font-size: .75rem; line-height: 1; }
+.bk-x:hover, .bk-x:focus-visible { background: rgba(0,0,0,.45); }
+.bk-cshape > .bk-body { margin-left: 14px; background: rgba(255,255,255,.12); border-radius: 0 4px 4px 0; padding: .3rem .3rem .3rem .4rem;
+  min-height: 2.2rem; border: 2px dashed transparent; }
+.bk-foot { height: .7rem; }
+.bk-impact .bk-label { font-size: .75rem; opacity: .9; margin: 0 0 .25rem; }
+.bk-sel-zone { border-color: rgba(255,255,255,.85) !important; }
+.bk-slot { border: 2px dashed rgba(0,0,0,.25); color: rgba(0,0,0,.55); border-radius: 5px; padding: .35rem .5rem; font-size: .78rem;
+  background: rgba(255,255,255,.55); }
+.bk-body .bk-slot { border-color: rgba(255,255,255,.55); color: #fff; background: transparent; }
+.bk-rootslot { margin-top: .4rem; }
+.bk-over { outline: 3px solid #4C97FF; outline-offset: 1px; }
+.bk-note { font-size: .72rem; font-weight: 500; padding: 0 .5rem .4rem; opacity: .95; }
+.bk-msg { min-height: 1.2rem; margin: .4rem 0 0; color: #9ed99e; font-size: .85rem; }
+.bk-msg.bad { color: #ff8a8a; }
+@media (max-width: 720px) {
+  .bk { grid-template-columns: 1fr; }
+  .bk-palette { max-height: 16rem; }
+}
+/* champs « pilule » blancs dans les blocs (plus forts que le style général des champs du formulaire) */
+.bk input.bk-in, .bk select.bk-sel { width: auto; min-width: 0; flex: 0 0 auto; height: auto; margin: 0; background: #fff; color: #333;
+  border: 1px solid rgba(0,0,0,.25); border-radius: 999px; padding: .1rem .45rem; font: 600 .8rem system-ui, sans-serif; box-shadow: none; }
+.bk input.bk-in { width: 3.6rem; text-align: center; }
+.bk select.bk-sel { max-width: 11rem; }
+.bk input.bk-in.bad { background: #ffd2d2; border-color: #c00; }
+/* Petits écrans : rien ne doit dépasser de la largeur de la page (champs à 100 % + bordures, contenus longs) */
+.rows > *, .row, .bk, .bk-script, .bk-palette { min-width: 0; }
+.row input, .row select, .row textarea { box-sizing: border-box; min-width: 0; }
+.row .name, .mcprev { overflow-wrap: anywhere; }
+.rows { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 30rem) {
+  /* en colonne, une base de 100 % s'appliquerait à la hauteur : les champs reprennent leur taille normale, sur toute la largeur */
+  .row.wrap input[type="text"], .row.wrap textarea, .row.wrap .mcprev { flex: 0 0 auto; width: 100%; align-self: stretch; }
+}
