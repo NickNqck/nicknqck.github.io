@@ -199,7 +199,7 @@ const MENU = {
               options: ["BLOCKS", "FORM"], labels: { BLOCKS: "Blocs (comme Scratch)", FORM: "Formulaire" }, showIf: { kind: "ITEM" } },
             { type: "itemblocks", id: "blocks", label: "Programme du pouvoir", showIf: { kind: "ITEM", editorView: "BLOCKS" } },
             { type: "select", id: "clickMode", label: "Clic(s) qui activent l'objet", default: "RIGHT_ONLY", uiHideIf: BLOCKS_VIEW,
-              invalidMessage: "Chaque bloc « si » doit contenir un capteur de clic (catégorie Capteurs : clic gauche, clic droit, ou clic gauche ou clic droit), et il faut au moins un « si ».",
+              invalidMessage: "Chaque bloc « si » doit contenir son capteur (catégorie Capteurs) : un clic pour les « si » du programme, « viser un joueur » pour un « si » placé dans un clic. Il faut au moins un « si ».",
               options: ["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT"],
               labels: { LEFT_ONLY: "Clic gauche uniquement", RIGHT_ONLY: "Clic droit uniquement",
                         BOTH_SAME: "Les deux clics font la même chose", DIFFERENT: "Chaque clic fait une action différente" },
