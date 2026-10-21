@@ -355,3 +355,33 @@ a.btn { display: inline-block; text-decoration: none; }
   /* en colonne, une base de 100 % s'appliquerait à la hauteur : les champs reprennent leur taille normale, sur toute la largeur */
   .row.wrap input[type="text"], .row.wrap textarea, .row.wrap .mcprev { flex: 0 0 auto; width: 100%; align-self: stretch; }
 }
+
+/* ---------- Blocs « si ⬡ alors » + capteurs hexagonaux, plein écran ---------- */
+.bk-top { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.bk-hex { clip-path: polygon(.7rem 0, calc(100% - .7rem) 0, 100% 50%, calc(100% - .7rem) 100%, .7rem 100%, 0 50%); border: 0; }
+.bk-hex::before { display: none; }
+.bk-pal.bk-hex { padding: .45rem 1.1rem; }
+.bk-cond { display: inline-flex; align-items: center; min-height: 1.7rem; }
+.bk-cond-empty { min-width: 6.5rem; justify-content: center; padding: 0 1rem; background: rgba(0,0,0,.28); color: rgba(255,255,255,.85);
+  font-size: .75rem; clip-path: polygon(.7rem 0, calc(100% - .7rem) 0, 100% 50%, calc(100% - .7rem) 100%, .7rem 100%, 0 50%); }
+.bk-cond-empty.bk-over { outline: 0; background: #4C97FF; }
+.bk-sensor { display: inline-flex; align-items: center; gap: .35rem; padding: .25rem .5rem .25rem 1rem; margin: 0; cursor: grab; }
+.bk-sensor .bk-x { width: 1.2rem; height: 1.2rem; margin-right: .3rem; }
+.bk-incomplete > .bk-line { box-shadow: inset 0 0 0 2px rgba(255,255,255,.7); border-radius: 5px; }
+.bk-fullbtn { white-space: nowrap; }
+body.bk-noscroll { overflow: hidden; }
+.bk-row.bk-full { position: fixed; inset: 0; z-index: 2000; margin: 0; border: 0; background: #1c1d22; padding: 1rem;
+  overflow: hidden; display: flex; flex-direction: column; }
+.bk-full .bk { flex: 1 1 auto; min-height: 0; grid-template-columns: 260px 1fr; }
+.bk-full .bk-palette { max-height: none; }
+.bk-full .bk-script { min-height: 0; overflow: auto; }
+.bk-full .bk-msg { flex: 0 0 auto; }
+@media (max-width: 720px) {
+  .bk-full .bk { grid-template-columns: 1fr; grid-template-rows: minmax(0, 35%) minmax(0, 1fr); }
+  .bk-full .bk-palette { max-height: none; }
+}
+/* « si » imbriqué dans un clic (capteur « viser un joueur ») */
+.bk-nested { margin-top: 1px; }
+.bk-sensor .bk-in { width: 3.2rem; }
+/* « sinon » fixe d'un « si viser » (message du plugin quand personne n'est visé) */
+.bk-else { padding: .3rem .6rem .45rem; font-size: .75rem; font-weight: 600; color: #4a3200; }
