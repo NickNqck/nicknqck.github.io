@@ -451,7 +451,7 @@
             return n;
           };
           const who = el("select");
-          [["USER", "à l'utilisateur"], ["TARGET", "à la cible"]].forEach(function (w) {
+          [["USER", "à l'utilisateur"], ["TARGET", it.targetLabel ? it.targetLabel(obj) : "à la cible"]].forEach(function (w) {
             if (w[0] === "TARGET" && !targetOk) return;
             const op = el("option", "", w[1]); op.value = w[0]; who.appendChild(op);
           });

@@ -27,6 +27,7 @@ const BlockEditor = (function () {
     { id: "sensing", name: "Capteurs", color: "#5CB1D6" },
     { id: "motion", name: "Mouvement", color: "#4C97FF" },
     { id: "projectile", name: "Projectile", color: "#FF6680" },
+    { id: "area", name: "Zone", color: "#0FBD8C" },
     { id: "looks", name: "Effets", color: "#9966FF" },
     { id: "operators", name: "Cooldown", color: "#59C059" }
   ];
@@ -46,13 +47,17 @@ const BlockEditor = (function () {
     impactTp: { cat: "projectile", zone: "impact", palette: "me téléporter au point d'impact" },
     zone: { cat: "projectile", zone: "impact", palette: "zone de dégâts au point d'impact" },
     effect: { cat: "looks", zone: "any", palette: "donner un effet" },
+    area: { cat: "area", zone: "branch", palette: "pour chaque joueur à moins de 50 blocs :" },
+    areaDamage: { cat: "area", zone: "area", palette: "infliger 1 ❤ (sans tuer)" },
+    areaLightning: { cat: "area", zone: "area", palette: "faire tomber un éclair" },
+    areaUp: { cat: "area", zone: "area", palette: "propulser de 50 blocs vers le haut" },
     cooldown: { cat: "operators", zone: "branch", palette: "cooldown de ce clic" }
   };
   const SENSOR_OF = { LEFT: "sensLeft", RIGHT: "sensRight", ANY: "sensAny" };
   const CLICK_NAME = { LEFT: "clic gauche", RIGHT: "clic droit", ANY: "clic gauche ou clic droit" };
   const TP_TYPE = { tpBehind: "TP_BEHIND", tpAround: "TP_AROUND", tpToMe: "TP_TO_USER" };
   const FIELDS = ["Action", "Aim", "Distance", "TpDistance", "Radius", "Projectile", "ImpactTp", "Zone", "ZoneRadius",
-    "ZoneDamage", "ZoneSeconds", "ZoneColor", "Effects", "Cooldown"];
+    "ZoneDamage", "ZoneSeconds", "ZoneColor", "Effects", "Cooldown", "AreaRadius", "AreaFilter", "AreaDamage", "AreaLightning", "AreaUp"];
 
   let dragging = null; // bloc en cours de glisser-déposer : { mode: "new", type } ou { mode: "move", ref }
 
@@ -67,6 +72,8 @@ const BlockEditor = (function () {
   const isSensor = function (type) { return DEF[type].zone === "cond" || DEF[type].zone === "innerCond"; };
   const nestedOf = function (b) { return b.blocks.find(function (x) { return x.t === "if"; }); };
   const launchOf = function (b) { return b.blocks.find(function (x) { return x.t === "launch"; }); };
+  const areaOf = function (b) { return b.blocks.find(function (x) { return x.t === "area"; }); };
+  const effectCount = function (list) { return list.filter(function (x) { return x.t === "effect"; }).length; };
   const effectOf = function (x, who) { return { t: "effect", effect: x.effect, level: x.level, seconds: x.seconds, who: who || x.who || "USER" }; };
 
   // ---------- données <-> programme ----------
@@ -78,7 +85,16 @@ const BlockEditor = (function () {
     const effects = (get("Effects") || []).map(function (e) { return effectOf(e); });
     const blocks = [];
     const act = get("Action");
-    if (act === "LAUNCH") {
+    if (act === "AREA") {
+      // zone : dégâts, éclair, propulsion et effets « à la cible » vont dans « pour chaque joueur », les effets « à moi » à côté
+      const inner = [];
+      if (get("AreaDamage") > 0) inner.push({ t: "areaDamage", hearts: get("AreaDamage") });
+      if (get("AreaLightning")) inner.push({ t: "areaLightning" });
+      if (get("AreaUp") > 0) inner.push({ t: "areaUp", height: get("AreaUp") });
+      effects.forEach(function (e) { if (e.who === "TARGET") inner.push(e); });
+      blocks.push({ t: "area", radius: get("AreaRadius"), filter: get("AreaFilter"), blocks: inner });
+      effects.forEach(function (e) { if (e.who !== "TARGET") { e.who = "USER"; blocks.push(e); } });
+    } else if (act === "LAUNCH") {
       const impact = [];
       if (get("ImpactTp")) impact.push({ t: "impactTp" });
       if (get("Zone")) impact.push({ t: "zone", radius: get("ZoneRadius"), damage: get("ZoneDamage"), seconds: get("ZoneSeconds"), color: get("ZoneColor") });
@@ -108,7 +124,7 @@ const BlockEditor = (function () {
   function writeBranch(p, pf, branch, dflt) {
     FIELDS.forEach(function (k) { p[pf + k] = clone(dflt(pf + k)); });
     if (!branch) return;
-    const nested = nestedOf(branch), launch = launchOf(branch);
+    const nested = nestedOf(branch), launch = launchOf(branch), area = areaOf(branch);
     p[pf + "Action"] = "EFFECT_ONLY";
     branch.blocks.forEach(function (x) { if (x.t === "cooldown") p[pf + "Cooldown"] = x.seconds; });
     if (nested) {
@@ -125,6 +141,22 @@ const BlockEditor = (function () {
       p[pf + "Effects"] = nested.blocks.filter(function (x) { return x.t === "effect"; }).map(function (x) {
         return { effect: x.effect, level: x.level, seconds: x.seconds, who: x.who };
       });
+    } else if (area) {
+      p[pf + "Action"] = "AREA";
+      p[pf + "AreaRadius"] = area.radius;
+      p[pf + "AreaFilter"] = area.filter;
+      area.blocks.forEach(function (x) {
+        if (x.t === "areaDamage") p[pf + "AreaDamage"] = x.hearts;
+        if (x.t === "areaLightning") p[pf + "AreaLightning"] = true;
+        if (x.t === "areaUp") p[pf + "AreaUp"] = x.height;
+      });
+      const mine = branch.blocks.filter(function (x) { return x.t === "effect"; }).map(function (x) {
+        return { effect: x.effect, level: x.level, seconds: x.seconds, who: "USER" };
+      });
+      const theirs = area.blocks.filter(function (x) { return x.t === "effect"; }).map(function (x) {
+        return { effect: x.effect, level: x.level, seconds: x.seconds, who: "TARGET" };
+      });
+      p[pf + "Effects"] = mine.concat(theirs);
     } else if (launch) {
       p[pf + "Action"] = "LAUNCH";
       p[pf + "Projectile"] = launch.projectile;
@@ -174,6 +206,10 @@ const BlockEditor = (function () {
       case "zone": return { t: "zone", radius: d("ZoneRadius"), damage: d("ZoneDamage"), seconds: d("ZoneSeconds"), color: d("ZoneColor") };
       case "effect": return { t: "effect", effect: "SPEED", level: 1, seconds: 10, who: "USER" };
       case "cooldown": return { t: "cooldown", seconds: 30 };
+      case "area": return { t: "area", radius: d("AreaRadius"), filter: d("AreaFilter"), blocks: [] };
+      case "areaDamage": return { t: "areaDamage", hearts: 1 };
+      case "areaLightning": return { t: "areaLightning" };
+      case "areaUp": return { t: "areaUp", height: 50 };
       default: return null;
     }
   }
@@ -183,7 +219,7 @@ const BlockEditor = (function () {
   const zoneKind = function (zone) {
     if (!zone || zone === "root") return "root";
     if (zone.cond) return zone.inner ? "innerCond" : "cond";
-    return zone.inner ? "inner" : zone.impact ? "impact" : "branch";
+    return zone.inner ? "inner" : zone.impact ? "impact" : zone.area ? "area" : "branch";
   };
 
   /** Message d'erreur si le bloc ne peut pas aller là, sinon "". ignore = bloc déplacé (non compté). */
@@ -194,6 +230,9 @@ const BlockEditor = (function () {
     const others = branch ? branch.blocks.filter(function (x) { return x !== ignore; }) : [];
     const nested = others.find(function (x) { return x.t === "if"; });
     const launch = others.find(function (x) { return x.t === "launch"; });
+    const area = others.find(function (x) { return x.t === "area"; });
+    // 5 effets au maximum par clic, à moi et aux joueurs touchés réunis
+    const clickEffects = effectCount(others) + (area ? effectCount(area.blocks.filter(function (x) { return x !== ignore; })) : 0);
 
     if (type === "if") {
       if (kind === "root") {
@@ -205,6 +244,7 @@ const BlockEditor = (function () {
       if (ignore && ignore.blocks && ignore.click !== undefined) return "Ce « si » attend un clic : il reste dans le programme principal.";
       if (nested) return "Ce clic a déjà son « si » : place les actions à l'intérieur.";
       if (launch) return "Un projectile ne vise pas : pas de « si viser un joueur » avec « lancer un projectile ».";
+      if (area) return "Une zone touche tous les joueurs proches : pas de « si viser un joueur » avec « pour chaque joueur ».";
       return "";
     }
     if (def.zone === "cond") {
@@ -224,6 +264,15 @@ const BlockEditor = (function () {
       return "";
     }
     if (kind === "root" || kind === "cond" || kind === "innerCond") return "Glisse ce bloc à l'intérieur d'un bloc « si ».";
+    if (kind === "area") {
+      if (!area) return "Ce clic n'a pas de bloc « pour chaque joueur à moins de … ».";
+      if (def.zone !== "area" && type !== "effect") return "Seuls les dégâts, l'éclair, la propulsion et les effets vont dans « pour chaque joueur ».";
+      const inside = area ? area.blocks.filter(function (x) { return x !== ignore; }) : [];
+      if (type !== "effect" && inside.some(function (x) { return x.t === type; })) return "Ce bloc est déjà dans la zone.";
+      if (type === "effect" && clickEffects >= 5) return "5 effets maximum par clic.";
+      return "";
+    }
+    if (def.zone === "area") return "Ce bloc va dans un bloc « pour chaque joueur à moins de … » (catégorie Zone).";
     if (kind === "impact") {
       if (def.zone !== "impact" && type !== "effect") return "Seuls la téléportation à l'impact, la zone de dégâts et les effets vont dans « à l'impact ».";
       const impact = launch ? launch.impact.filter(function (x) { return x !== ignore; }) : [];
@@ -236,6 +285,7 @@ const BlockEditor = (function () {
       const inside = nested ? nested.blocks.filter(function (x) { return x !== ignore; }) : [];
       if (def.tp && inside.some(function (x) { return DEF[x.t].tp; })) return "Une seule téléportation par clic.";
       if (type === "launch") return "Un projectile ne vise pas : place « lancer un projectile » directement dans le « si » du clic.";
+      if (type === "area") return "Une zone touche tous les joueurs proches : place-la directement dans le « si » du clic.";
       if (type === "cooldown") return "Le cooldown du clic se place directement dans le « si » du clic.";
       if (type === "effect" && inside.filter(function (x) { return x.t === "effect"; }).length >= 5) return "5 effets maximum par clic.";
       return "";
@@ -245,11 +295,17 @@ const BlockEditor = (function () {
     if (type === "launch") {
       if (launch) return "Ce clic lance déjà un projectile.";
       if (nested) return "Ce clic vise un joueur : un projectile ne peut pas s'y ajouter.";
+      if (area) return "Ce clic a une zone : un projectile ne peut pas s'y ajouter.";
+    }
+    if (type === "area") {
+      if (area) return "Ce clic a déjà sa zone.";
+      if (nested) return "Ce clic vise un joueur : une zone ne peut pas s'y ajouter.";
+      if (launch) return "Ce clic lance un projectile : une zone ne peut pas s'y ajouter.";
     }
     if (type === "effect") {
       if (nested) return "Ce clic vise un joueur : place les effets dans son « si viser un joueur ».";
       if (launch) return "Avec un projectile, place les effets dans « à l'impact ».";
-      if (others.filter(function (x) { return x.t === "effect"; }).length >= 5) return "5 effets maximum par clic.";
+      if (clickEffects >= 5) return "5 effets maximum par clic.";
     }
     if (type === "cooldown") {
       if (others.some(function (x) { return x.t === "cooldown"; })) return "Ce clic a déjà son cooldown.";
@@ -343,7 +399,7 @@ const BlockEditor = (function () {
     });
 
     // zone sélectionnée (cible des blocs ajoutés par un simple clic) : seule la surbrillance change
-    const keyOf = function (zone) { return zone.branch + ":" + (zone.inner ? "inner" : zone.impact ? "impact" : "branch"); };
+    const keyOf = function (zone) { return zone.branch + ":" + (zone.inner ? "inner" : zone.impact ? "impact" : zone.area ? "area" : "branch"); };
     function select(zone) {
       selected = zone;
       const key = keyOf(zone);
@@ -359,6 +415,7 @@ const BlockEditor = (function () {
       if (ref.index === undefined) return { list: prog.branches, item: b };
       if (ref.inner) { const l = nestedOf(b).blocks; return { list: l, item: l[ref.index] }; }
       if (ref.impactIndex !== undefined) { const l = b.blocks[ref.index].impact; return { list: l, item: l[ref.impactIndex] }; }
+      if (ref.areaIndex !== undefined) { const l = b.blocks[ref.index].blocks; return { list: l, item: l[ref.areaIndex] }; }
       return { list: b.blocks, item: b.blocks[ref.index] };
     }
     function typeOf(ref) {
@@ -379,6 +436,7 @@ const BlockEditor = (function () {
       at.list.splice(at.list.indexOf(at.item), 1);
       if (ref.index === undefined) selected = prog.branches.length ? { branch: 0 } : null;
       else if (at.item.t === "if" && selected && selected.inner && selected.branch === ref.branch) selected = { branch: ref.branch };
+      else if (at.item.t === "area" && selected && selected.area && selected.branch === ref.branch) selected = { branch: ref.branch };
     }
     /** Ajoute (ou déplace, si from est donné) un bloc ; retourne false avec un message si c'est impossible. */
     function insert(type, zone, before, from) {
@@ -421,9 +479,11 @@ const BlockEditor = (function () {
           say("Place maintenant le capteur « viser un joueur » (catégorie Capteurs) dans l'emplacement ⬡ de ce « si ».");
         }
       }
-      const target = kind === "inner" ? nestedOf(branch).blocks : kind === "impact" ? launchOf(branch).impact : branch.blocks;
+      const target = kind === "inner" ? nestedOf(branch).blocks : kind === "impact" ? launchOf(branch).impact
+        : kind === "area" ? areaOf(branch).blocks : branch.blocks;
       target.splice(before === undefined || before > target.length ? target.length : before, 0, block);
       selected = type === "launch" ? { branch: zone.branch, impact: true } : type === "if" ? { branch: zone.branch, inner: true }
+        : type === "area" ? { branch: zone.branch, area: true }
         : kind === "branch" ? { branch: zone.branch } : zone;
       return true;
     }
@@ -471,6 +531,13 @@ const BlockEditor = (function () {
         const i = [sel.branch].concat(prog.branches.map(function (b, k) { return k; })).find(function (k) { return launchOf(prog.branches[k]); });
         if (i === undefined) return say("Ajoute d'abord « lancer un projectile » dans un « si ».", true);
         zone = { branch: i, impact: true };
+      } else if (DEF[type].zone === "area") {
+        // va dans « pour chaque joueur » du clic sélectionné, sinon du premier clic qui a une zone
+        const i = [sel.branch].concat(prog.branches.map(function (b, k) { return k; })).find(function (k) { return areaOf(prog.branches[k]); });
+        if (i === undefined) return say("Ajoute d'abord « pour chaque joueur à moins de … » (catégorie Zone) dans un « si ».", true);
+        zone = { branch: i, area: true };
+      } else if (type === "effect" && sel.area && areaOf(selBranch)) {
+        zone = { branch: sel.branch, area: true };
       } else if (DEF[type].tp || (type === "effect" && nested)) {
         if (nested) zone = { branch: sel.branch, inner: true };
       } else if (type === "effect" && launch) {
@@ -526,7 +593,7 @@ const BlockEditor = (function () {
       n.type = "number"; n.min = min; n.max = max; n.step = step || 1;
       n.value = block[key];
       n.setAttribute("aria-label", { distance: "distance en blocs", radius: "rayon en blocs", seconds: "durée en secondes",
-        level: "niveau", damage: "dégâts en cœurs" }[key] || key);
+        level: "niveau", damage: "dégâts en cœurs", hearts: "dégâts en cœurs", height: "hauteur en blocs" }[key] || key);
       const check = function () { n.classList.toggle("bad", !(n.valueAsNumber >= min && n.valueAsNumber <= max) || (step === 1 && !Number.isInteger(n.valueAsNumber))); };
       check();
       n.addEventListener("input", function () { block[key] = n.valueAsNumber; check(); save(); if (onInput) onInput(); });
@@ -551,7 +618,7 @@ const BlockEditor = (function () {
     function blockNode(block, ref, branch) {
       const type = block.t;
       if (type === "if") return nestedNode(block, ref, branch);
-      const node = el("div", "bk-block" + (type === "launch" ? " bk-cshape" : ""));
+      const node = el("div", "bk-block" + (type === "launch" || type === "area" ? " bk-cshape" : ""));
       node.style.setProperty("--c", catOf(type).color);
       const line = el("div", "bk-line");
       node.appendChild(line);
@@ -564,6 +631,13 @@ const BlockEditor = (function () {
           add("lancer"); add(choice(block, "projectile", [["ARROW", "une flèche"], ["SNOWBALL", "une boule de neige"]]));
           break;
         case "impactTp": add("me téléporter au point d'impact"); break;
+        case "area":
+          add("pour chaque"); add(choice(block, "filter", [["ENEMIES", "ennemi"], ["ALL", "joueur"]]));
+          add("à moins de"); add(num(block, "radius", 1, 100, 1)); add("blocs :");
+          break;
+        case "areaDamage": add("infliger"); add(num(block, "hearts", 0.5, 10, 0.5)); add("❤ (sans tuer)"); break;
+        case "areaLightning": add("faire tomber un éclair (sans dégâts)"); break;
+        case "areaUp": add("propulser de"); add(num(block, "height", 1, 100, 1)); add("blocs vers le haut"); break;
         case "zone":
           add("zone de dégâts : rayon"); add(num(block, "radius", 1, 30, 1)); add("blocs,");
           add(num(block, "damage", 0.5, 10, 0.5)); add("❤ par joueur, pendant"); add(num(block, "seconds", 0, 60, 1)); add("s, couleur");
@@ -572,7 +646,8 @@ const BlockEditor = (function () {
         case "effect": {
           add("donner"); add(choice(block, "effect", Object.keys(opts.potions).map(function (k) { return [k, opts.potions[k]]; })));
           add("niveau"); add(num(block, "level", 1, 10, 1)); add("pendant"); add(num(block, "seconds", 1, 1600, 1)); add("s à");
-          // « la cible » seulement dans un « si viser un joueur »
+          // « la cible » seulement dans un « si viser un joueur » ; dans une zone, l'effet va au joueur touché
+          if (ref.areaIndex !== undefined) { block.who = "TARGET"; add("ce joueur"); break; }
           if (!ref.inner) block.who = "USER";
           add(ref.inner ? choice(block, "who", [["USER", "moi"], ["TARGET", "la cible"]]) : "moi");
           break;
@@ -595,6 +670,22 @@ const BlockEditor = (function () {
           body.appendChild(n);
         });
         body.appendChild(el("div", "bk-slot", block.impact.length ? "+" : "glisse ici : téléportation à l'impact, zone de dégâts, effets"));
+        dropZone(body, zone);
+        body.dataset.zone = keyOf(zone);
+        body.addEventListener("click", function (e) { e.stopPropagation(); select(zone); });
+        node.appendChild(body);
+        node.appendChild(el("div", "bk-foot"));
+      }
+      if (type === "area") {
+        const body = el("div", "bk-body bk-impact");
+        const zone = { branch: ref.branch, area: true };
+        if (selected && keyOf(selected) === keyOf(zone)) body.classList.add("bk-sel-zone");
+        block.blocks.forEach(function (child, j) {
+          const n = blockNode(child, { branch: ref.branch, index: ref.index, areaIndex: j }, branch);
+          dropZone(n, zone, j);
+          body.appendChild(n);
+        });
+        body.appendChild(el("div", "bk-slot", block.blocks.length ? "+" : "glisse ici : dégâts, éclair, propulsion, effets"));
         dropZone(body, zone);
         body.dataset.zone = keyOf(zone);
         body.addEventListener("click", function (e) { e.stopPropagation(); select(zone); });

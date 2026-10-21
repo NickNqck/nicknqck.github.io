@@ -170,7 +170,7 @@ const JarBuilder = (function () {
         const title = stripMc(p.title);
         if (typeof p.powerItem !== "string" || !/^[A-Z0-9_]{2,40}$/.test(p.powerItem)) throw new Error("Objet invalide pour le pouvoir " + title);
         if (["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT"].indexOf(p.clickMode) === -1) throw new Error("Clic invalide pour le pouvoir " + title);
-        const TYPES = ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER", "LAUNCH"];
+        const TYPES = ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER", "LAUNCH", "AREA"];
         // action = "TYPE,distanceDeVisée,distanceAutour,effets,projectile" ; effets = "U|T:EFFET:ticks:amplificateur" séparés par "+" ;
         // projectile (LAUNCH seulement) = "PROJECTILE;tp;zone;rayon;dégâtsEnDemiCœurs;secondes;couleurHex"
         const action = function (prefix) {
@@ -189,7 +189,7 @@ const JarBuilder = (function () {
             if (!Number.isInteger(e.level) || e.level < 1 || e.level > 10) throw new Error("Niveau invalide pour le pouvoir " + title);
             if (!Number.isInteger(e.seconds) || e.seconds < 1 || e.seconds > 1600) throw new Error("Durée invalide pour le pouvoir " + title);
             if (e.who !== "USER" && e.who !== "TARGET") throw new Error("Destinataire invalide pour le pouvoir " + title);
-            if (e.who === "TARGET" && !aim) throw new Error("Un effet pour la cible demande de viser un joueur (pouvoir " + title + ").");
+            if (e.who === "TARGET" && !aim && type !== "AREA") throw new Error("Un effet pour la cible demande de viser un joueur (pouvoir " + title + ").");
             return (e.who === "TARGET" ? "T" : "U") + ":" + e.effect + ":" + (e.seconds * 20) + ":" + (e.level - 1);
           });
           if (type === "EFFECT_ONLY" && !effects.length) throw new Error("Aucun effet pour le pouvoir " + title);
@@ -208,6 +208,17 @@ const JarBuilder = (function () {
             const swatch = /^[0-9a-f]$/.test(zoneColor) && COLORS.find(function (x) { return x.code === zoneColor; });
             if (!swatch) throw new Error("Couleur de zone invalide pour le pouvoir " + title);
             launch = [projectile, impactTp ? 1 : 0, zone ? 1 : 0, zr, zone ? hearts * 2 : 0, zs, swatch.hex.slice(1)].join(";");
+          }
+          if (type === "AREA") { // zone : "rayon;ENEMIES|ALL;demi-cœurs;éclair;hauteur"
+            const g = function (k, d) { return p[prefix + k] === undefined ? d : p[prefix + k]; };
+            const ar = g("AreaRadius", 50), filter = g("AreaFilter", "ENEMIES"), dmg = g("AreaDamage", 0), up = g("AreaUp", 0);
+            const light = g("AreaLightning", false) === true;
+            if (!Number.isInteger(ar) || ar < 1 || ar > 100) throw new Error("Rayon de zone invalide pour le pouvoir " + title);
+            if (["ENEMIES", "ALL"].indexOf(filter) === -1) throw new Error("Joueurs touchés invalides pour le pouvoir " + title);
+            if (typeof dmg !== "number" || !Number.isInteger(dmg * 2) || dmg < 0 || dmg > 10) throw new Error("Dégâts de zone invalides pour le pouvoir " + title);
+            if (!Number.isInteger(up) || up < 0 || up > 100) throw new Error("Propulsion invalide pour le pouvoir " + title);
+            if (!(dmg > 0) && !(up > 0) && !effects.length) throw new Error("La zone du pouvoir " + title + " n'a aucune conséquence.");
+            launch = [ar, filter, dmg * 2, light ? 1 : 0, up].join(";");
           }
           return type + "," + dist + "," + radius + "," + effects.join("+") + "," + launch;
         };

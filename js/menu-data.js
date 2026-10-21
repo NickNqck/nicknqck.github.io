@@ -32,12 +32,13 @@ function clickFieldsRaw(prefix, modes) {
   const act = function (actions, extra) { return Object.assign({}, when, { [prefix + "Action"]: actions }, extra || {}); };
   return [
     { type: "select", id: prefix + "Action", label: "Action du clic", default: "EFFECT_ONLY",
-      options: ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER", "LAUNCH"],
+      options: ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER", "LAUNCH", "AREA"],
       labels: { EFFECT_ONLY: "Donner des effets (sans téléportation)",
                 TP_BEHIND: "Se téléporter derrière le joueur visé",
                 TP_AROUND: "Se téléporter autour du joueur visé",
                 TP_TO_USER: "Téléporter le joueur visé jusqu'à soi",
-                LAUNCH: "Lancer un projectile (conséquences à l'impact)" }, showIf: when },
+                LAUNCH: "Lancer un projectile (conséquences à l'impact)",
+                AREA: "Toucher tous les joueurs autour de moi (zone)" }, showIf: when },
     { type: "toggle", id: prefix + "Aim", label: "En visant un joueur", default: false, showIf: act(["EFFECT_ONLY"]) },
     { type: "number", id: prefix + "Distance", label: "Distance maximale de visée (blocs)", default: 30, min: 1, max: 100, step: 1,
       showIf: act(["EFFECT_ONLY"], { [prefix + "Aim"]: true }) },
@@ -57,6 +58,18 @@ function clickFieldsRaw(prefix, modes) {
       showIf: act(["LAUNCH"], { [prefix + "Zone"]: true }) },
     { type: "number", id: prefix + "ZoneSeconds", label: "Durée de la zone (secondes) : 0 = une seule explosion, sinon dégâts chaque seconde", default: 0, min: 0, max: 60, step: 1,
       showIf: act(["LAUNCH"], { [prefix + "Zone"]: true }) },
+    // Zone autour de l'utilisateur (comme Khakkhara / Uchiwa / Affaiblissement de Hantengu)
+    { type: "number", id: prefix + "AreaRadius", label: "Rayon de la zone autour de moi (blocs)", default: 50, min: 1, max: 100, step: 1,
+      optional: true, showIf: act(["AREA"]) },
+    { type: "select", id: prefix + "AreaFilter", label: "Joueurs touchés", default: "ENEMIES", optional: true,
+      options: ["ENEMIES", "ALL"], labels: { ENEMIES: "Tous sauf ceux de mon camp", ALL: "Tous les joueurs" }, showIf: act(["AREA"]) },
+    { type: "number", id: prefix + "AreaDamage", label: "Dégâts à chaque joueur touché (cœurs, ne tue jamais ; 0 = aucun)", default: 0, min: 0, max: 10, step: 0.5,
+      optional: true, showIf: act(["AREA"]) },
+    { type: "toggle", id: prefix + "AreaLightning", label: "Faire tomber un éclair sur chaque joueur touché", default: false, optional: true,
+      showIf: act(["AREA"]) },
+    { type: "number", id: prefix + "AreaUp", label: "Propulser chaque joueur touché vers le haut (blocs, 0 = non)", default: 0, min: 0, max: 100, step: 1,
+      optional: true, showIf: act(["AREA"]) },
+
     // la zone est dessinée en particules visibles par les joueurs, à sa création puis tant qu'elle est active
     { type: "color", id: prefix + "ZoneColor", label: "Couleur de la zone (cercle de particules)", default: "c",
       showIf: act(["LAUNCH"], { [prefix + "Zone"]: true }) },
@@ -65,7 +78,9 @@ function clickFieldsRaw(prefix, modes) {
       allowTarget: function (rec) {
         const action = rec[prefix + "Action"];
         return action === "EFFECT_ONLY" ? rec[prefix + "Aim"] === true : action !== "LAUNCH";
-      }, showIf: when },
+      },
+      targetLabel: function (rec) { return rec[prefix + "Action"] === "AREA" ? "aux joueurs touchés" : "à la cible"; },
+      showIf: when },
 
     // Cooldown propre à ce clic (seulement quand chaque clic fait une action différente) : chaque clic a son compte à rebours
     { type: "number", id: prefix + "Cooldown", label: "Cooldown de ce clic (secondes, 0 = aucun)", default: 0, min: 0, max: 3600, step: 1, optional: true,
@@ -153,6 +168,8 @@ const MENU = {
               const g = groups[i][0], effects = (p[g + "Effects"] || []).length;
               if (p[g + "Action"] === "EFFECT_ONLY" && !effects)
                 return "Ajoute au moins un effet pour l'action du " + groups[i][1] + ".";
+              if (p[g + "Action"] === "AREA" && !(p[g + "AreaDamage"] > 0) && !(p[g + "AreaUp"] > 0) && !effects)
+                return "Pour la zone du " + groups[i][1] + " : choisis au moins des dégâts, une propulsion ou un effet.";
               if (p[g + "Action"] === "LAUNCH" && !p[g + "ImpactTp"] && !p[g + "Zone"] && !effects)
                 return "Pour le projectile du " + groups[i][1] + " : choisis au moins une conséquence (téléportation, zone de dégâts ou effet).";
             }

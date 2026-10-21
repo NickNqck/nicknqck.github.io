@@ -23,6 +23,7 @@ import java.util.WeakHashMap;
  *  - TP_BEHIND   : téléporte l'utilisateur derrière le joueur visé ;
  *  - TP_AROUND   : téléporte l'utilisateur autour du joueur visé, à une distance réglable ;
  *  - TP_TO_USER  : téléporte le joueur visé jusqu'à l'utilisateur ;
+ *  - AREA        : touche tous les joueurs autour de l'utilisateur (AreaSupport) ;
  *  - LAUNCH      : lance un projectile dont l'impact téléporte l'utilisateur et/ou crée une zone de dégâts (ProjectileSupport).
  * Dans tous les cas, des effets (EffectWhen.NOW) peuvent être donnés à l'utilisateur et/ou à la cible.
  * Retourne true quand l'action a réussi (ce qui déclenche le cooldown et compte l'utilisation), false sinon.
@@ -73,6 +74,23 @@ final class ItemPowerSupport {
         }
     }
 
+    /** Zone autour de l'utilisateur (AREA) : voir AreaSupport. */
+    static final class Area {
+        final int radius;
+        final boolean enemiesOnly;   // true : les joueurs du camp de l'utilisateur ne sont pas touchés
+        final int damageHalfHearts;  // dégâts (demi-cœurs) qui ne tuent jamais
+        final boolean lightning;     // éclair (visuel) sur chaque joueur touché
+        final int up;                // propulsion vers le haut (blocs)
+
+        Area(int radius, boolean enemiesOnly, int damageHalfHearts, boolean lightning, int up) {
+            this.radius = radius;
+            this.enemiesOnly = enemiesOnly;
+            this.damageHalfHearts = damageHalfHearts;
+            this.lightning = lightning;
+            this.up = up;
+        }
+    }
+
     /** Une action de clic. distance = distance maximale de visée (0 = pas de visée). */
     static final class Action {
         final String type;
@@ -80,13 +98,15 @@ final class ItemPowerSupport {
         final int radius;
         final List<Effect> effects;
         final Launch launch; // null sauf pour LAUNCH
+        final Area area;     // null sauf pour AREA
 
-        Action(String type, int distance, int radius, List<Effect> effects, Launch launch) {
+        Action(String type, int distance, int radius, List<Effect> effects, Launch launch, Area area) {
             this.type = type;
             this.distance = distance;
             this.radius = radius;
             this.effects = effects;
             this.launch = launch;
+            this.area = area;
         }
     }
 
@@ -147,7 +167,12 @@ final class ItemPowerSupport {
             launch = new Launch(l[0], "1".equals(l[1]), "1".equals(l[2]), Integer.parseInt(l[3]), Integer.parseInt(l[4]), Integer.parseInt(l[5]),
                     l.length > 6 ? Integer.parseInt(l[6], 16) : 0xFF5555);
         }
-        return new Action(p[0], Integer.parseInt(p[1]), Integer.parseInt(p[2]), effects, launch);
+        Area area = null;
+        if ("AREA".equals(p[0])) { // "rayon;ENEMIES|ALL;demi-cœurs;éclair(0|1);hauteur"
+            String[] a = p[4].split(";");
+            area = new Area(Integer.parseInt(a[0]), "ENEMIES".equals(a[1]), Integer.parseInt(a[2]), "1".equals(a[3]), Integer.parseInt(a[4]));
+        }
+        return new Action(p[0], Integer.parseInt(p[1]), Integer.parseInt(p[2]), effects, launch, area);
     }
 
     static boolean use(ItemPower power, Player player, Map<String, Object> map) {
@@ -174,6 +199,7 @@ final class ItemPowerSupport {
      */
     static boolean perform(ItemPower item, Power caller, Action action, Player player) {
         ItemPower power = item;
+        if ("AREA".equals(action.type)) return AreaSupport.apply(item, player, action); // zone autour de l'utilisateur
         if ("LAUNCH".equals(action.type)) { // le projectile part tout de suite ; les conséquences arrivent à l'impact
             if (!ProjectileSupport.launch(power, player, action)) return false;
             player.sendMessage("\u00a77Vous avez utilis\u00e9\u00a7r " + power.getName() + "\u00a77.");
