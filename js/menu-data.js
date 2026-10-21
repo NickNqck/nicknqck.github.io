@@ -22,7 +22,12 @@
 // Le groupe "a" sert au clic gauche (ou aux deux clics), le groupe "b" au clic droit.
 const CLICK_MODES_A = ["LEFT_ONLY", "BOTH_SAME", "DIFFERENT"];
 const CLICK_MODES_B = ["RIGHT_ONLY", "DIFFERENT"];
+// uiHideIf : champ caché à l'écran (mais toujours validé et enregistré) quand le pouvoir s'affiche en blocs
+const BLOCKS_VIEW = { editorView: "BLOCKS" };
 function clickFields(prefix, modes) {
+  return clickFieldsRaw(prefix, modes).map(function (f) { return Object.assign(f, { uiHideIf: BLOCKS_VIEW }); });
+}
+function clickFieldsRaw(prefix, modes) {
   const when = { kind: "ITEM", clickMode: modes };
   const act = function (actions, extra) { return Object.assign({}, when, { [prefix + "Action"]: actions }, extra || {}); };
   return [
@@ -189,15 +194,20 @@ const MENU = {
 
             // --- Objet à activer : matériau, clic(s) qui l'activent, puis l'action de chaque clic (clickFields) ---
             { type: "item", id: "powerItem", label: "Objet du pouvoir", default: "IRON_SWORD", showIf: { kind: "ITEM" } },
-            { type: "select", id: "clickMode", label: "Clic(s) qui activent l'objet", default: "RIGHT_ONLY",
+            // Affichage : programme en blocs (façon Scratch, js/blocks.js) ou formulaire classique ; les deux modifient les mêmes réglages
+            { type: "select", id: "editorView", label: "Affichage", default: "BLOCKS", optional: true,
+              options: ["BLOCKS", "FORM"], labels: { BLOCKS: "Blocs (comme Scratch)", FORM: "Formulaire" }, showIf: { kind: "ITEM" } },
+            { type: "itemblocks", id: "blocks", label: "Programme du pouvoir", showIf: { kind: "ITEM", editorView: "BLOCKS" } },
+            { type: "select", id: "clickMode", label: "Clic(s) qui activent l'objet", default: "RIGHT_ONLY", uiHideIf: BLOCKS_VIEW,
+              invalidMessage: "Ajoute au moins un bloc « si clic gauche », « si clic droit » ou « si clic gauche ou clic droit » (catégorie Contrôle).",
               options: ["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT"],
               labels: { LEFT_ONLY: "Clic gauche uniquement", RIGHT_ONLY: "Clic droit uniquement",
                         BOTH_SAME: "Les deux clics font la même chose", DIFFERENT: "Chaque clic fait une action différente" },
               showIf: { kind: "ITEM" } },
-            { type: "heading", id: "hLeft", label: "Clic gauche", showIf: { kind: "ITEM", clickMode: ["LEFT_ONLY", "DIFFERENT"] } },
-            { type: "heading", id: "hBoth", label: "Clic gauche et clic droit", showIf: { kind: "ITEM", clickMode: "BOTH_SAME" } }
+            { type: "heading", id: "hLeft", label: "Clic gauche", showIf: { kind: "ITEM", clickMode: ["LEFT_ONLY", "DIFFERENT"] }, uiHideIf: BLOCKS_VIEW },
+            { type: "heading", id: "hBoth", label: "Clic gauche et clic droit", showIf: { kind: "ITEM", clickMode: "BOTH_SAME" }, uiHideIf: BLOCKS_VIEW }
           ].concat(clickFields("a", CLICK_MODES_A), [
-            { type: "heading", id: "hRight", label: "Clic droit", showIf: { kind: "ITEM", clickMode: ["RIGHT_ONLY", "DIFFERENT"] } }
+            { type: "heading", id: "hRight", label: "Clic droit", showIf: { kind: "ITEM", clickMode: ["RIGHT_ONLY", "DIFFERENT"] }, uiHideIf: BLOCKS_VIEW }
           ], clickFields("b", CLICK_MODES_B), [
 
             // --- Communs à tous les types ---

@@ -15,6 +15,7 @@
     ["js/effects-data.js", has(function () { return POTION_LABELS; }) && has(function () { return PROTECTED_EFFECTS; })],
     ["js/meetup-teams.js", has(function () { return MEETUP_TEAMS; })],
     ["js/commands-data.js", has(function () { return commandProblem; }) && has(function () { return COMMAND_PATTERN; })],
+    ["js/blocks.js", has(function () { return BlockEditor; })],
     ["js/menu-data.js", has(function () { return MENU; })],
     ["js/vendor/jszip.min.js", has(function () { return JSZip; })],
     ["js/spigot-check.js", has(function () { return SpigotCheck; })]
@@ -160,7 +161,7 @@
         const out = v.map(function (e) {
           const o = {};
           it.fields.forEach(function (f) {
-            if (f.type === "heading") return; // simple titre : aucune valeur
+            if (f.type === "heading" || f.type === "itemblocks") return; // titre / éditeur à blocs : aucune valeur propre
             // optional : un champ ajouté après coup prend sa valeur par défaut dans un .json plus ancien
             const raw = e && typeof e === "object" ? e[f.id] : undefined;
             const x = !visible(f, o) || (raw === undefined && f.optional) ? copyDefault(f) : e && typeof e === "object" ? clean(f, raw, o) : undefined;
@@ -389,6 +390,14 @@
 
   function control(it, obj) {
     if (it.type === "heading") return el("h3", "subhead", it.label);
+    if (it.type === "itemblocks") { // éditeur à blocs : il modifie directement les champs des clics du brouillon
+      const siblings = editing && editing.sub ? editing.sub.field.fields : [];
+      return BlockEditor.render(obj, {
+        dflt: function (id) { const f = siblings.find(function (x) { return x.id === id; }); return f ? copyDefault(f) : undefined; },
+        itemName: function (id) { const i = ITEMS.find(function (x) { return x.id === id; }); return i ? i.name : id; },
+        potions: POTION_LABELS, colors: COLORS
+      });
+    }
     if (it.type === "list") return listControl(it, obj);
     const color = it.type === "color";
     const multi = it.type === "multiselect" || it.type === "teamcolors" || it.type === "effectlist";
@@ -791,7 +800,7 @@
 
   function defaults(col) {
     const o = {};
-    col.fields.forEach(function (f) { if (f.type !== "heading") o[f.id] = f.type === "list" ? [] : copyDefault(f); });
+    col.fields.forEach(function (f) { if (f.type !== "heading" && f.type !== "itemblocks") o[f.id] = f.type === "list" ? [] : copyDefault(f); });
     return o;
   }
 
@@ -943,7 +952,10 @@
     const ed = editing, sub = ed.sub, f = sub.field;
     menu.appendChild(el("h2", "q", sub.index < 0 ? (f.createLabel || "Ajouter") : "Modifier : " + ed.draft[f.id][sub.index].name));
     const rows = el("div", "rows");
-    const shown = function () { return f.fields.filter(function (x) { return visible(x, sub.draft); }); };
+    // uiHideIf : caché à l'écran seulement (ex. champs des clics quand le pouvoir s'affiche en blocs), toujours validé
+    const shown = function () {
+      return f.fields.filter(function (x) { return visible(x, sub.draft) && !(x.uiHideIf && visible({ showIf: x.uiHideIf }, sub.draft)); });
+    };
     const before = shown().map(function (x) { return x.id; }).join();
     shown().forEach(function (x) { rows.appendChild(control(x, sub.draft)); });
     // un choix qui fait apparaître/disparaître un champ (ex. « Quand » -> durée) redessine le formulaire
@@ -963,10 +975,11 @@
       const out = {};
       for (let n = 0; n < f.fields.length; n++) {
         const x = f.fields[n];
-        if (x.type === "heading") continue;
+        if (x.type === "heading" || x.type === "itemblocks") continue;
         if (!visible(x, out)) { out[x.id] = copyDefault(x); continue; }
-        const v = clean(x, sub.draft[x.id], out);
-        if (v === undefined) { err.textContent = "Valeur invalide ou manquante : " + x.label + "."; return; }
+        const raw = sub.draft[x.id] === undefined && x.optional ? copyDefault(x) : sub.draft[x.id];
+        const v = clean(x, raw, out);
+        if (v === undefined) { err.textContent = x.invalidMessage || "Valeur invalide ou manquante : " + x.label + "."; return; }
         out[x.id] = v;
       }
       out.name = autoNameOf(f, out);
