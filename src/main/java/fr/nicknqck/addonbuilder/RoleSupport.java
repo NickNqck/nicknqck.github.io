@@ -214,7 +214,8 @@ public final class RoleSupport {
      * Appelée par le constructeur des pouvoirs générés qui réagissent à la partie : crée le comportement du type
      * demandé. Les écouteurs sont enregistrés avec EventUtils.registerRoleEvent (désenregistrés par UHC-Meetup en fin
      * de partie) ; l'information est une tâche qui s'arrête d'elle-même quand la partie se termine.
-     * kind : BLOCK_EFFECT (param = effets séparés par des virgules), BLOCK_POWER ou INFO (voir InfoPassive).
+     * kind : BLOCK_EFFECT (param = effets séparés par des virgules), BLOCK_POWER, INFO (voir InfoPassive) ou NO_ARMOR
+     * (voir NoArmorPassive).
      */
     public static void passive(Object power, String kind, int radius, String param) {
         try {
@@ -225,6 +226,9 @@ public final class RoleSupport {
                 listener = new PowerBlockListener((Power) power, radius);
             } else if ("INFO".equals(kind)) {
                 new InfoPassive((Power) power, radius, param).start();
+                return;
+            } else if ("NO_ARMOR".equals(kind)) {
+                new NoArmorPassive((Power) power, param).start();
                 return;
             } else {
                 throw new IllegalArgumentException("type de passif inconnu : " + kind);

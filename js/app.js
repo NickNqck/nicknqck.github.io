@@ -460,8 +460,10 @@
           line.appendChild(sel);
           line.appendChild(el("span", "tiny", "niv."));
           line.appendChild(num("level", 1, 10));
-          line.appendChild(el("span", "tiny", it.secondsLabel || "durée (s)"));
-          line.appendChild(num("seconds", it.minSeconds === undefined ? 1 : it.minSeconds, 1600));
+          if (!it.hideSeconds) { // hideSeconds : effet maintenu tant qu'une condition dure (passif sans armure)
+            line.appendChild(el("span", "tiny", it.secondsLabel || "durée (s)"));
+            line.appendChild(num("seconds", it.minSeconds === undefined ? 1 : it.minSeconds, 1600));
+          }
           if (!it.hideWho) line.appendChild(who);
           line.appendChild(button("btn red small", "✕", function () { list.splice(i, 1); draw(); }));
           input.appendChild(line);

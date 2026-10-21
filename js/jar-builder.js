@@ -96,7 +96,7 @@ const JarBuilder = (function () {
     const commandArgs = Object.create(null); // "commande arg" déjà pris dans ce rôle
     if ((role.powers || []).length > 10) throw new Error("Plus de 10 pouvoirs pour le rôle " + role.constant);
     return (role.powers || []).map(function (p) {
-      if (["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "ITEM", "COMMAND_EFFECTS"].indexOf(p.kind) === -1) throw new Error("Type de pouvoir inconnu : " + p.kind);
+      if (["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "NO_ARMOR", "ITEM", "COMMAND_EFFECTS"].indexOf(p.kind) === -1) throw new Error("Type de pouvoir inconnu : " + p.kind);
       const blocker = ["BLOCK_EFFECT", "BLOCK_POWER", "INFO"].indexOf(p.kind) !== -1;
       if (blocker && (!Number.isInteger(p.radius) || p.radius < 1 || p.radius > 100)) throw new Error("Rayon invalide pour le pouvoir " + stripMc(p.title));
       let param = "";
@@ -121,6 +121,26 @@ const JarBuilder = (function () {
         });
         param = p.needSeconds + "|" + hex(p.defaultColor) + "|" + map.join(",");
       }
+      // Sans armure : param = "nofall(0|1)|EFFET:amplificateur+..." ; une ligne de description automatique résume le bonus
+      let armorLine = null;
+      if (p.kind === "NO_ARMOR") {
+        const title = stripMc(p.title);
+        const list = p.armorEffects || [];
+        const noFall = p.armorNoFall === true;
+        if (!Array.isArray(list) || list.length > 5 || (!list.length && !noFall)) throw new Error("Bonus sans armure invalide pour le pouvoir " + title);
+        const parts = list.map(function (e) {
+          if (!e || !/^[A-Z_]{2,30}$/.test(e.effect)) throw new Error("Effet invalide pour le pouvoir " + title);
+          if (!Number.isInteger(e.level) || e.level < 1 || e.level > 10) throw new Error("Niveau invalide pour le pouvoir " + title);
+          return e;
+        });
+        param = (noFall ? "1" : "0") + "|" + parts.map(function (e) { return e.effect + ":" + (e.level - 1); }).join("+");
+        const ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+        const bonus = parts.map(function (e) { return "\u00a7a" + (POTION_LABELS[e.effect] || e.effect) + " " + ROMAN[e.level] + "\u00a77"; });
+        if (noFall) bonus.push("\u00a7aNo Fall\u00a77");
+        armorLine = "\u00a77Quand vous ne portez aucune\u00a7c armure\u00a77 : " +
+          (bonus.length > 1 ? bonus.slice(0, -1).join(", ") + " et " + bonus[bonus.length - 1] : bonus[0]) + ".";
+      }
+
       // Commande : /commande <argument> active le pouvoir (effets maintenus ou limités dans le temps), la même commande le désactive.
       // param = "EFFET:ticks:amplificateur+..." (ticks 0 = tant que le pouvoir est activé)
       let command = "", arg = "", autoLine = null;
@@ -223,7 +243,7 @@ const JarBuilder = (function () {
       return { className: POWER_PACKAGE + role.constant + "_" + id, name: /\u00a7r$/.test(name) ? name : name + "\u00a7r",
         cooldown: p.cooldown, maxUse: p.maxUse, kind: p.kind, radius: blocker ? p.radius : 0,
         param: param, material: material, itemName: itemName, command: command, arg: arg,
-        descriptions: (autoLine ? [autoLine] : []).concat(String(p.description || "") === "" ? [] : lines.map(mc)) };
+        descriptions: (autoLine ? [autoLine] : armorLine ? [armorLine] : []).concat(String(p.description || "") === "" ? [] : lines.map(mc)) };
     });
   }
 

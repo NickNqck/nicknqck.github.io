@@ -26,9 +26,9 @@ const SpigotCheck = (function () {
       "org/bukkit/event/Event", "org/bukkit/plugin/java/JavaPlugin", "org/bukkit/World$Spigot", "org/bukkit/entity/Player$Spigot",
       "org/bukkit/event/inventory/InventoryClickEvent", "org/bukkit/event/player/PlayerInteractEvent",
       "org/bukkit/event/entity/ProjectileHitEvent",
-      "org/bukkit/command/Command", "org/bukkit/command/PluginCommand"],
+      "org/bukkit/command/Command", "org/bukkit/command/PluginCommand", "org/bukkit/event/entity/EntityDamageEvent"],
     enum: ["org/bukkit/Material", "org/bukkit/Effect", "org/bukkit/Sound", "org/bukkit/GameMode", "org/bukkit/event/EventPriority",
-      "org/bukkit/event/block/Action"]
+      "org/bukkit/event/block/Action", "org/bukkit/event/entity/EntityDamageEvent$DamageCause"]
   };
 
   const pause = function () { return new Promise(function (r) { setTimeout(r, 40); }); };

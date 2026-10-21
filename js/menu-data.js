@@ -138,6 +138,8 @@ const MENU = {
           nameTemplate: "{title}",
           // Un clic qui ne téléporte pas doit donner au moins un effet (sinon il ne fait rien)
           validate: function (p) {
+            if (p.kind === "NO_ARMOR" && !(p.armorEffects || []).length && !p.armorNoFall)
+              return "Ajoute au moins un effet, ou coche l'insensibilité aux chutes.";
             if (p.kind === "COMMAND_EFFECTS") {
               if (!(p.cmdEffects || []).length) return "Ajoute au moins un effet pour ce pouvoir.";
               if (RESERVED_ARGS.indexOf(p.arg) !== -1) return "L'argument « " + p.arg + " » est déjà pris (/commande me et /commande roles existent déjà).";
@@ -164,11 +166,12 @@ const MENU = {
           },
           fields: [
             { type: "select", id: "kind", label: "Type de pouvoir", default: "PASSIVE",
-              options: ["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "ITEM", "COMMAND_EFFECTS"],
+              options: ["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "NO_ARMOR", "ITEM", "COMMAND_EFFECTS"],
               labels: { PASSIVE: "Passif simple (description seule)",
                         BLOCK_EFFECT: "Passif : empêche les joueurs proches d'obtenir des effets",
                         BLOCK_POWER: "Passif : empêche les joueurs proches d'utiliser un pouvoir",
                         INFO: "Passif : révèle le camp des joueurs restés à proximité",
+                        NO_ARMOR: "Passif : bonus quand le joueur ne porte aucune armure",
                         ITEM: "Objet à activer au clic (donne un effet)",
                         COMMAND_EFFECTS: "Commande : active / désactive des effets" } },
             { type: "mctext", id: "title", label: "Nom du pouvoir", default: "", max: 40, hint: "ex. &bMon pouvoir" },
@@ -188,6 +191,11 @@ const MENU = {
               showIf: { kind: "INFO" } },
             { type: "teamcolors", id: "teamColors", label: "Couleur par camp", default: {}, showIf: { kind: "INFO" } },
             { type: "color", id: "defaultColor", label: "Couleur des autres camps", default: "9", showIf: { kind: "INFO" } },
+            // Sans armure (comme l'invisibilité de Hantengu) : effets maintenus et / ou NoFall tant qu'aucune pièce d'armure n'est portée
+            { type: "effectlist", id: "armorEffects", label: "Effets tant qu'aucune armure n'est portée", default: [], max: 5,
+              hideWho: true, hideSeconds: true, allowTarget: function () { return false; }, optional: true, showIf: { kind: "NO_ARMOR" } },
+            { type: "toggle", id: "armorNoFall", label: "Insensible aux dégâts de chute sans armure", default: false, optional: true,
+              showIf: { kind: "NO_ARMOR" } },
 
             // --- Commande : /commande <argument> active le pouvoir, la même commande le désactive ---
             { type: "mycommand", id: "command", label: "Commande", default: "", showIf: { kind: "COMMAND_EFFECTS" } },
