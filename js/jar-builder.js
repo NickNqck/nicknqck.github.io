@@ -287,7 +287,7 @@ const JarBuilder = (function () {
       const extra = [];
       if (r.revive) {
         extra.push("\u00a77Une fois par partie, \u00e0 votre mort, vous\u00a7a ressuscitez\u00a77" +
-          (r.revive.radius > 0 ? " \u00e0 moins de\u00a7c " + r.revive.radius + " blocs\u00a77" : " sur place") +
+          (r.revive.radius > 0 ? " \u00e0\u00a7c " + r.revive.radius + " blocs\u00a77 de l\u00e0" : " sur place") +
           (r.revive.hearts > 0 ? " en perdant\u00a7c " + r.revive.hearts + "\u2764 permanent" + (r.revive.hearts > 1 ? "s" : "") + "\u00a77." : "."));
       }
       return { constant: r.constant, displayName: r.displayName, effects: effects, powers: powersOf(r, settings), noFall: r.noFall,

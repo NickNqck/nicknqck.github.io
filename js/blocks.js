@@ -9,7 +9,8 @@
  *
  * Bloc de départ (catégorie Événements) :
  *   quand le joueur utilise <objet>     -> pouvoir d'objet (kind ITEM), programme ci-dessous ; juste sous le départ,
- *                                          l'apparence de l'objet (catégorie Objet : brillant, enchanté, incassable)
+ *                                          l'apparence de l'objet (catégorie Objet : brillant, enchanté ; UHC-Meetup le rend
+ *                                          déjà incassable)
  *   quand le joueur tape /<cmd> <arg>   -> pouvoir de commande (COMMAND_EFFECTS) : des blocs « donner un effet »
  *   en permanence (passif)              -> passif : un seul comportement (catégorie Passifs), ou aucun (PASSIVE)
  *   + sous n'importe quel départ : « cooldown du pouvoir », « utilisable N fois maximum »
@@ -61,7 +62,6 @@ const BlockEditor = (function () {
     itemGlint: { cat: "look", zone: "root", look: true, palette: "faire briller l'objet (comme enchanté)" },
     itemEnchant: { cat: "look", zone: "root", look: true, palette: "enchanter l'objet" },
     itemHide: { cat: "look", zone: "root", look: true, palette: "cacher les enchantements" },
-    itemUnbreakable: { cat: "look", zone: "root", look: true, palette: "rendre l'objet incassable" },
     if: { cat: "control", palette: "si ⬡ alors" },
     sensLeft: { cat: "sensing", zone: "cond", click: "LEFT", palette: "clic gauche" },
     sensRight: { cat: "sensing", zone: "cond", click: "RIGHT", palette: "clic droit" },
@@ -77,7 +77,7 @@ const BlockEditor = (function () {
     area: { cat: "area", zone: "branch", palette: "pour chaque joueur à moins de 50 blocs :" },
     areaDamage: { cat: "area", zone: "area", palette: "infliger 1 ❤ (sans tuer)" },
     areaLightning: { cat: "area", zone: "area", palette: "faire tomber un éclair" },
-    areaUp: { cat: "area", zone: "area", palette: "propulser de 50 blocs vers le haut" },
+    areaUp: { cat: "area", zone: "area", palette: "propulser de 50 blocs vers le haut (+ dégâts de chute)" },
     blockFx: { cat: "passive", zone: "root", passive: "BLOCK_EFFECT", palette: "empêcher les joueurs proches d'obtenir des effets :" },
     fxPick: { cat: "passive", zone: "child", parent: "blockFx", palette: "l'effet … (à empêcher)" },
     blockPow: { cat: "passive", zone: "root", passive: "BLOCK_POWER", palette: "empêcher les joueurs proches d'utiliser leurs pouvoirs" },
@@ -172,10 +172,10 @@ const BlockEditor = (function () {
     if (k === "ITEM") {
       prog.event = { t: "evItem", item: p.powerItem || dflt("powerItem") };
       prog.branches = readClicks(p, dflt);
+      prog.keepUnbreakable = !!p.itemUnbreakable; // ancien réglage sans bloc (UHC-Meetup le fait déjà) : conservé tel quel
       if (p.itemGlint) prog.look.push({ t: "itemGlint" });
       (p.itemEnchants || []).forEach(function (e) { prog.look.push({ t: "itemEnchant", enchant: e.enchant, level: e.level }); });
       if (p.itemHideEnchants) prog.look.push({ t: "itemHide" });
-      if (p.itemUnbreakable) prog.look.push({ t: "itemUnbreakable" });
     } else if (k === "COMMAND_EFFECTS") {
       prog.event = { t: "evCommand", command: p.command || "", arg: p.arg || "" };
       prog.body = (p.cmdEffects || []).map(function (e) { return effectOf(e, "USER"); });
@@ -278,11 +278,11 @@ const BlockEditor = (function () {
       p.kind = "ITEM";
       p.powerItem = ev.item;
       writeClicks(p, prog, dflt);
+      p.itemUnbreakable = !!prog.keepUnbreakable;
       prog.look.forEach(function (x) {
         if (x.t === "itemGlint") p.itemGlint = true;
         if (x.t === "itemEnchant") p.itemEnchants.push({ enchant: x.enchant, level: x.level });
         if (x.t === "itemHide") p.itemHideEnchants = true;
-        if (x.t === "itemUnbreakable") p.itemUnbreakable = true;
       });
     } else if (ev && ev.t === "evCommand") {
       p.kind = "COMMAND_EFFECTS";
@@ -344,7 +344,7 @@ const BlockEditor = (function () {
       case "noFall": return { t: "noFall" };
       case "powerCooldown": return { t: "powerCooldown", seconds: 30 };
       case "maxUse": return { t: "maxUse", count: 1 };
-      case "itemGlint": case "itemHide": case "itemUnbreakable": return { t: type };
+      case "itemGlint": case "itemHide": return { t: type };
       case "itemEnchant": return { t: "itemEnchant", enchant: "", level: 1 };
       default: return null;
     }
@@ -944,7 +944,10 @@ const BlockEditor = (function () {
           break;
         case "areaDamage": add("infliger"); add(num(block, "hearts", 0.5, 10, 0.5)); add("❤ (sans tuer)"); break;
         case "areaLightning": add("faire tomber un éclair (sans dégâts)"); break;
-        case "areaUp": add("propulser de"); add(num(block, "height", 1, 100, 1)); add("blocs vers le haut"); break;
+        case "areaUp":
+          add("propulser de"); add(num(block, "height", 1, 100, 1)); add("blocs vers le haut");
+          node.appendChild(el("div", "bk-note", "Le joueur est téléporté en l'air et prend les dégâts de chute en retombant (comme Uchiwa : ils peuvent tuer)."));
+          break;
         case "zone":
           add("zone de dégâts : rayon"); add(num(block, "radius", 1, 30, 1)); add("blocs,");
           add(num(block, "damage", 0.5, 10, 0.5)); add("❤ par joueur, pendant"); add(num(block, "seconds", 0, 60, 1)); add("s, couleur");
@@ -990,7 +993,6 @@ const BlockEditor = (function () {
           add("cacher les enchantements");
           if (!prog.look.some(function (x) { return x.t === "itemEnchant"; })) node.appendChild(el("div", "bk-note", "Sans effet sans « enchanter l'objet » : il n'y a aucun enchantement à cacher (« faire briller » cache déjà le sien)."));
           break;
-        case "itemUnbreakable": add("rendre l'objet incassable"); break;
         case "blockFx":
           add("empêcher les joueurs à moins de"); add(num(block, "radius", 1, 100, 1)); add("blocs d'obtenir :");
           break;

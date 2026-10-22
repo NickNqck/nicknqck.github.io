@@ -67,7 +67,7 @@ function clickFieldsRaw(prefix, modes) {
       optional: true, showIf: act(["AREA"]) },
     { type: "toggle", id: prefix + "AreaLightning", label: "Faire tomber un éclair sur chaque joueur touché", default: false, optional: true,
       showIf: act(["AREA"]) },
-    { type: "number", id: prefix + "AreaUp", label: "Propulser chaque joueur touché vers le haut (blocs, 0 = non)", default: 0, min: 0, max: 100, step: 1,
+    { type: "number", id: prefix + "AreaUp", label: "Propulser chaque joueur touché vers le haut (blocs, 0 = non ; il prend les dégâts de chute en retombant)", default: 0, min: 0, max: 100, step: 1,
       optional: true, showIf: act(["AREA"]) },
 
     // la zone est dessinée en particules visibles par les joueurs, à sa création puis tant qu'elle est active
@@ -129,7 +129,8 @@ const MENU = {
         { type: "toggle", id: "revive", label: "Ressuscite une fois par partie à sa mort", default: false, optional: true },
         { type: "number", id: "reviveHearts", label: "Cœurs maximum perdus en ressuscitant (permanents)", default: 2, min: 0, max: 9, step: 1,
           optional: true, showIf: { revive: true } },
-        { type: "number", id: "reviveRadius", label: "Réapparition au hasard à moins de (blocs, 0 = sur place)", default: 50, min: 0, max: 200, step: 1,
+        { type: "number", id: "reviveRadius", label: "Réapparition à cette distance, direction au hasard (blocs, 0 = sur place)",
+          note: "Comme Urami de Hantengu : le déplacement ne se fait que dans le monde de jeu « arena » d'UHC-Meetup ; ailleurs, le joueur réapparaît sur place.", default: 50, min: 0, max: 200, step: 1,
           optional: true, showIf: { revive: true } },
 
         // Effets de potion donnés au propriétaire du rôle (givePotionEffect dans RoleGiven), 15 au maximum.
@@ -239,6 +240,7 @@ const MENU = {
               invalidMessage: "Un bloc « enchanter l'objet » est invalide : niveau de 1 à 10, chaque enchantement une seule fois.",
               showIf: { kind: "ITEM" } },
             { type: "toggle", id: "itemHideEnchants", label: "Enchantements cachés", default: false, optional: true, inBlocks: true, showIf: { kind: "ITEM" } },
+            // plus de bloc : UHC-Meetup rend déjà incassable tout objet de pouvoir (ItemPower) ; gardé pour relire les anciens .json
             { type: "toggle", id: "itemUnbreakable", label: "Objet incassable", default: false, optional: true, inBlocks: true, showIf: { kind: "ITEM" } },
             { type: "select", id: "clickMode", label: "Clic(s) qui activent l'objet", default: "RIGHT_ONLY", inBlocks: true,
               invalidMessage: "Chaque bloc « si » doit contenir son capteur (catégorie Capteurs) : un clic pour les « si » du programme, « viser un joueur » pour un « si » placé dans un clic. Il faut au moins un « si ».",
