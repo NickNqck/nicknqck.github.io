@@ -12,7 +12,7 @@
     ["js/items-data.js", has(function () { return ITEMS; })],
     ["js/colors-data.js", has(function () { return COLORS; })],
     ["js/meetup-modes.js", has(function () { return MEETUP_MODES; })],
-    ["js/effects-data.js", has(function () { return POTION_LABELS; }) && has(function () { return PROTECTED_EFFECTS; })],
+    ["js/effects-data.js", has(function () { return POTION_LABELS; }) && has(function () { return PROTECTED_EFFECTS; }) && has(function () { return ENCHANT_LABELS; })],
     ["js/meetup-teams.js", has(function () { return MEETUP_TEAMS; })],
     ["js/commands-data.js", has(function () { return commandProblem; }) && has(function () { return COMMAND_PATTERN; })],
     ["js/blocks.js", has(function () { return BlockEditor; })],
@@ -144,6 +144,19 @@
           if (!Number.isInteger(e.seconds) || e.seconds < (it.minSeconds === undefined ? 1 : it.minSeconds) || e.seconds > 1600) return undefined;
           if (e.who !== "USER" && !(e.who === "TARGET" && targetOk)) return undefined;
           out.push({ effect: e.effect, level: e.level, seconds: e.seconds, who: e.who });
+        }
+        return out;
+      }
+      case "enchantlist": { // enchantements de l'objet d'un pouvoir : [{ enchant, level }], chacun une seule fois
+        if (v === undefined) return [];
+        if (!Array.isArray(v) || v.length > (it.max || 5)) return undefined;
+        const seen = Object.create(null), out = [];
+        for (let n = 0; n < v.length; n++) {
+          const e = v[n];
+          if (!e || typeof e !== "object" || !ENCHANT_LABELS[e.enchant] || seen[e.enchant]) return undefined;
+          if (!Number.isInteger(e.level) || e.level < 1 || e.level > 10) return undefined;
+          seen[e.enchant] = true;
+          out.push({ enchant: e.enchant, level: e.level });
         }
         return out;
       }
@@ -405,6 +418,7 @@
         blockable: Object.keys(POTION_LABELS).filter(function (k) { return PROTECTED_EFFECTS.indexOf(k) === -1; }),
         teams: (mode ? modeTeams(mode) : []).map(function (t) { return { id: t.id, name: t.name }; }),
         teamName: teamLabel,
+        enchants: ENCHANT_LABELS, maxEnchants: MAX_ITEM_ENCHANTS,
         potions: POTION_LABELS, colors: COLORS
       });
     }
@@ -1056,6 +1070,7 @@
     if (f.type === "item") { const i = ITEMS.find(function (x) { return x.id === v; }); return i ? i.name : v; }
     if (f.type === "mdj" || f.type === "mymdj") return modeLabel(v);
     if (f.type === "effectlist") return (v || []).length + " effet(s)";
+    if (f.type === "enchantlist") return (v || []).map(function (e) { return ENCHANT_LABELS[e.enchant] + " " + e.level; }).join(", ") || "aucun";
     if (f.type === "multiselect") return (v || []).map(function (x) { return f.labels && f.labels[x] ? f.labels[x] : x; }).join(", ");
     if (f.type === "teamcolors") return Object.keys(v || {}).length + " camp(s) coloré(s)";
     if (f.type === "mctext") return String(v).replace(/&[0-9a-fk-or]/g, "").trim();

@@ -9,6 +9,7 @@ import fr.nicknqck.utils.powers.Power;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Listener;
 import org.bukkit.inventory.ItemStack;
@@ -198,6 +199,40 @@ public final class RoleSupport {
         Material material = Material.matchMaterial(materialName);
         if (material == null) material = Material.STONE;
         return new ItemBuilder(material).setName(displayName);
+    }
+
+    /**
+     * Objet d'un pouvoir avec une apparence, look = "brillant;cachés;incassable;ENCHANT:niveau,ENCHANT:niveau"
+     * (1 = oui). Les vrais enchantements passent par ItemBuilder.addEnchant (niveaux au-delà du maximum acceptés).
+     * Brillant sans vrai enchantement : un enchantement sans effet sur l'objet (Appât, ou Infinité pour une canne à
+     * pêche) est ajouté puis caché, l'objet scintille comme s'il était enchanté. Cachés : HIDE_ENCHANTS.
+     */
+    public static ItemBuilder itemBuilder(String materialName, String displayName, String look) {
+        ItemBuilder builder = itemBuilder(materialName, displayName);
+        String[] parts = look.split(";", -1);
+        if (parts.length < 4) return builder;
+        boolean enchanted = false;
+        for (String entry : parts[3].split(",")) {
+            int colon = entry.indexOf(':');
+            if (colon <= 0) continue;
+            Enchantment enchantment = Enchantment.getByName(entry.substring(0, colon));
+            if (enchantment == null) {
+                Bukkit.getLogger().severe("[UHC-Addon] Enchantement inconnu : " + entry);
+                continue;
+            }
+            builder.addEnchant(enchantment, Integer.parseInt(entry.substring(colon + 1)));
+            enchanted = true;
+        }
+        boolean hide = "1".equals(parts[1]);
+        if ("1".equals(parts[0]) && !enchanted) {
+            Material material = Material.matchMaterial(materialName);
+            Enchantment glint = Enchantment.getByName(material == Material.FISHING_ROD ? "ARROW_INFINITE" : "LURE");
+            if (glint != null) builder.addEnchant(glint, 1);
+            hide = true;
+        }
+        if (hide) builder.hideEnchantAttributes();
+        if ("1".equals(parts[2])) builder.setUnbreakable(true);
+        return builder;
     }
 
     /** Appelée par le constructeur d'un pouvoir objet : enregistre ses actions de clic (voir ItemPowerSupport). */

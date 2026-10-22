@@ -8,7 +8,8 @@
  * entièrement en blocs.
  *
  * Bloc de départ (catégorie Événements) :
- *   quand le joueur utilise <objet>     -> pouvoir d'objet (kind ITEM), programme ci-dessous
+ *   quand le joueur utilise <objet>     -> pouvoir d'objet (kind ITEM), programme ci-dessous ; juste sous le départ,
+ *                                          l'apparence de l'objet (catégorie Objet : brillant, enchanté, incassable)
  *   quand le joueur tape /<cmd> <arg>   -> pouvoir de commande (COMMAND_EFFECTS) : des blocs « donner un effet »
  *   en permanence (passif)              -> passif : un seul comportement (catégorie Passifs), ou aucun (PASSIVE)
  *   + sous n'importe quel départ : « cooldown du pouvoir », « utilisable N fois maximum »
@@ -33,6 +34,7 @@ const BlockEditor = (function () {
   // Catégories (couleurs de Scratch)
   const CATS = [
     { id: "events", name: "Événements", color: "#FFBF00" },
+    { id: "look", name: "Objet", color: "#FF8C1A" },
     { id: "control", name: "Contrôle", color: "#FFAB19" },
     { id: "sensing", name: "Capteurs", color: "#5CB1D6" },
     { id: "motion", name: "Mouvement", color: "#4C97FF" },
@@ -45,7 +47,7 @@ const BlockEditor = (function () {
   // catégories proposées selon le bloc de départ
   const CATS_OF = {
     none: ["events"],
-    evItem: ["events", "control", "sensing", "motion", "projectile", "area", "looks", "operators"],
+    evItem: ["events", "look", "control", "sensing", "motion", "projectile", "area", "looks", "operators"],
     evCommand: ["events", "looks", "operators"],
     evPassive: ["events", "passive", "looks", "operators"]
   };
@@ -56,6 +58,10 @@ const BlockEditor = (function () {
     evItem: { cat: "events", zone: "event", palette: "quand le joueur utilise un objet" },
     evCommand: { cat: "events", zone: "event", palette: "quand le joueur tape une commande" },
     evPassive: { cat: "events", zone: "event", palette: "en permanence (passif)" },
+    itemGlint: { cat: "look", zone: "root", look: true, palette: "faire briller l'objet (comme enchanté)" },
+    itemEnchant: { cat: "look", zone: "root", look: true, palette: "enchanter l'objet" },
+    itemHide: { cat: "look", zone: "root", look: true, palette: "cacher les enchantements" },
+    itemUnbreakable: { cat: "look", zone: "root", look: true, palette: "rendre l'objet incassable" },
     if: { cat: "control", palette: "si ⬡ alors" },
     sensLeft: { cat: "sensing", zone: "cond", click: "LEFT", palette: "clic gauche" },
     sensRight: { cat: "sensing", zone: "cond", click: "RIGHT", palette: "clic droit" },
@@ -88,7 +94,8 @@ const BlockEditor = (function () {
   const CSHAPES = ["if", "launch", "area", "blockFx", "info", "noArmor"];
   // champs du pouvoir écrits par l'éditeur (en plus des champs des clics, préfixes a et b)
   const POWER_FIELDS = ["kind", "powerItem", "clickMode", "radius", "blockedEffects", "needSeconds", "teamColors", "defaultColor",
-    "armorEffects", "armorNoFall", "command", "arg", "cmdEffects", "cooldown", "maxUse"];
+    "armorEffects", "armorNoFall", "command", "arg", "cmdEffects", "cooldown", "maxUse",
+    "itemGlint", "itemEnchants", "itemHideEnchants", "itemUnbreakable"];
   const SENSOR_OF = { LEFT: "sensLeft", RIGHT: "sensRight", ANY: "sensAny" };
   const CLICK_NAME = { LEFT: "clic gauche", RIGHT: "clic droit", ANY: "clic gauche ou clic droit" };
   const TP_TYPE = { tpBehind: "TP_BEHIND", tpAround: "TP_AROUND", tpToMe: "TP_TO_USER" };
@@ -160,11 +167,15 @@ const BlockEditor = (function () {
   // programme = { event: null | { t: "evItem", item } | { t: "evCommand", command, arg } | { t: "evPassive" },
   //               branches (objet), body (commande : effets ; passif : un comportement), limits (cooldown, utilisations) }
   function read(p, dflt) {
-    const prog = { event: null, branches: [], body: [], limits: [] };
+    const prog = { event: null, branches: [], body: [], limits: [], look: [] };
     const k = p.kind;
     if (k === "ITEM") {
       prog.event = { t: "evItem", item: p.powerItem || dflt("powerItem") };
       prog.branches = readClicks(p, dflt);
+      if (p.itemGlint) prog.look.push({ t: "itemGlint" });
+      (p.itemEnchants || []).forEach(function (e) { prog.look.push({ t: "itemEnchant", enchant: e.enchant, level: e.level }); });
+      if (p.itemHideEnchants) prog.look.push({ t: "itemHide" });
+      if (p.itemUnbreakable) prog.look.push({ t: "itemUnbreakable" });
     } else if (k === "COMMAND_EFFECTS") {
       prog.event = { t: "evCommand", command: p.command || "", arg: p.arg || "" };
       prog.body = (p.cmdEffects || []).map(function (e) { return effectOf(e, "USER"); });
@@ -267,6 +278,12 @@ const BlockEditor = (function () {
       p.kind = "ITEM";
       p.powerItem = ev.item;
       writeClicks(p, prog, dflt);
+      prog.look.forEach(function (x) {
+        if (x.t === "itemGlint") p.itemGlint = true;
+        if (x.t === "itemEnchant") p.itemEnchants.push({ enchant: x.enchant, level: x.level });
+        if (x.t === "itemHide") p.itemHideEnchants = true;
+        if (x.t === "itemUnbreakable") p.itemUnbreakable = true;
+      });
     } else if (ev && ev.t === "evCommand") {
       p.kind = "COMMAND_EFFECTS";
       p.command = ev.command;
@@ -327,6 +344,8 @@ const BlockEditor = (function () {
       case "noFall": return { t: "noFall" };
       case "powerCooldown": return { t: "powerCooldown", seconds: 30 };
       case "maxUse": return { t: "maxUse", count: 1 };
+      case "itemGlint": case "itemHide": case "itemUnbreakable": return { t: type };
+      case "itemEnchant": return { t: "itemEnchant", enchant: "", level: 1 };
       default: return null;
     }
   }
@@ -369,6 +388,16 @@ const BlockEditor = (function () {
     if (def.limit) {
       if (kind !== "root") return "Ce bloc se place directement sous le bloc de départ.";
       if (prog.limits.some(function (x) { return x.t === type && x !== ignore; })) return "Le programme a déjà ce bloc.";
+      return "";
+    }
+    // apparence de l'objet : directement sous « quand le joueur utilise … »
+    if (def.look) {
+      if (ev !== "evItem") return "Ce bloc change l'objet du pouvoir : il sert avec « quand le joueur utilise un objet ».";
+      if (kind !== "root") return "Ce bloc se place directement sous « quand le joueur utilise … ».";
+      const look = prog.look.filter(function (x) { return x !== ignore; });
+      if (type !== "itemEnchant" && look.some(function (x) { return x.t === type; })) return "L'objet a déjà ce bloc.";
+      if (type === "itemEnchant" && look.filter(function (x) { return x.t === type; }).length >= (ctx.maxEnchants || 5))
+        return (ctx.maxEnchants || 5) + " enchantements maximum.";
       return "";
     }
     if (ev === "evCommand") {
@@ -508,7 +537,8 @@ const BlockEditor = (function () {
     const prog = kept || read(obj, dflt);
     // zone sélectionnée : "root" (sous le départ), un clic { branch }, ou une zone intérieure
     let selected = prog.event && prog.event.t === "evItem" && prog.branches.length ? { branch: 0 } : "root";
-    const ctx = { maxCommandEffects: opts.maxCommandEffects || 8, blockable: opts.blockable || [], teams: opts.teams || [] };
+    const ctx = { maxCommandEffects: opts.maxCommandEffects || 8, blockable: opts.blockable || [], teams: opts.teams || [],
+      maxEnchants: opts.maxEnchants || 5 };
     const evType = function () { return prog.event ? prog.event.t : null; };
 
     const root = el("div", "row wrap bk-row");
@@ -609,6 +639,7 @@ const BlockEditor = (function () {
     // refs du départ : { event }, { body: i } (commande / passif), { body: i, child: j }, { limit: i }
     function locate(ref) {
       if (ref.limit !== undefined) return { list: prog.limits, item: prog.limits[ref.limit] };
+      if (ref.look !== undefined) return { list: prog.look, item: prog.look[ref.look] };
       if (ref.body !== undefined) {
         if (ref.child !== undefined) { const l = prog.body[ref.body].blocks; return { list: l, item: l[ref.child] }; }
         return { list: prog.body, item: prog.body[ref.body] };
@@ -622,7 +653,7 @@ const BlockEditor = (function () {
     }
     function typeOf(ref) {
       if (ref.event) return prog.event.t;
-      if (ref.limit !== undefined || ref.body !== undefined) return locate(ref).item.t;
+      if (ref.limit !== undefined || ref.look !== undefined || ref.body !== undefined) return locate(ref).item.t;
       if (ref.cond) return ref.inner ? "sensAim" : SENSOR_OF[prog.branches[ref.branch].click];
       if (ref.index === undefined) return "if";
       return locate(ref).item.t;
@@ -631,15 +662,15 @@ const BlockEditor = (function () {
     function movedThing(ref) {
       if (!ref) return null;
       if (ref.event) return prog.event;
-      if (ref.limit !== undefined || ref.body !== undefined) return locate(ref).item;
+      if (ref.limit !== undefined || ref.look !== undefined || ref.body !== undefined) return locate(ref).item;
       if (ref.cond) return ref.inner ? nestedOf(prog.branches[ref.branch]) : prog.branches[ref.branch];
       return locate(ref).item;
     }
     function remove(ref) {
       if (ref.event) { // le départ emporte tout son programme (sauf cooldown et utilisations)
-        prog.event = null; prog.branches = []; prog.body = []; selected = "root"; return;
+        prog.event = null; prog.branches = []; prog.body = []; prog.look = []; selected = "root"; return;
       }
-      if (ref.limit !== undefined || ref.body !== undefined) {
+      if (ref.limit !== undefined || ref.look !== undefined || ref.body !== undefined) {
         const at = locate(ref);
         at.list.splice(at.list.indexOf(at.item), 1);
         if (ref.body !== undefined && ref.child === undefined) selected = "root";
@@ -680,12 +711,15 @@ const BlockEditor = (function () {
         say(EVENT_HELP[type]);
         return true;
       }
-      if (def.limit || (kind === "root" && evType() !== "evItem") || kind === "child") {
+      if (def.limit || def.look || (kind === "root" && evType() !== "evItem") || kind === "child") {
         const block = from ? locate(from).item : newBlock(type, dflt);
         if (from) { const at = locate(from); at.list.splice(at.list.indexOf(at.item), 1); }
         let list;
         if (def.limit) list = prog.limits;
-        else if (kind === "child") {
+        else if (def.look) {
+          list = prog.look;
+          if (!from && type === "itemEnchant") block.enchant = freeValue({ blocks: prog.look }, "enchant", Object.keys(opts.enchants));
+        } else if (kind === "child") {
           const parent = prog.body[zone.pb];
           list = parent.blocks;
           if (!from && type === "fxPick") block.effect = freeValue(parent, "effect", ctx.blockable);
@@ -696,7 +730,8 @@ const BlockEditor = (function () {
           if (!from && type === "effect") block.seconds = 0; // commande : effet maintenu tant que le pouvoir est activé
         }
         list.splice(before === undefined || before > list.length ? list.length : before, 0, block);
-        selected = def.passive && CSHAPES.indexOf(type) !== -1 ? { pb: prog.body.indexOf(block) } : kind === "child" ? zone : "root";
+        // l'apparence de l'objet ne change pas la zone sélectionnée (les blocs suivants vont toujours dans le clic choisi)
+        if (!def.look) selected = def.passive && CSHAPES.indexOf(type) !== -1 ? { pb: prog.body.indexOf(block) } : kind === "child" ? zone : "root";
         return true;
       }
       if (type === "if" && kind === "root") {
@@ -748,7 +783,7 @@ const BlockEditor = (function () {
       const def = DEF[type], ev = evType();
       if (def.zone === "event") { if (insert(type, { event: true })) commit(); return; }
       if (!ev) return say(refuse(prog, type, "root", null, ctx), true);
-      if (def.limit) { if (insert(type, "root")) commit(); return; }
+      if (def.limit || def.look) { if (insert(type, "root")) commit(); return; }
       if (ev === "evPassive" && (def.parent || type === "effect")) {
         const parentType = def.parent || "noArmor";
         const i = prog.body.findIndex(function (x) { return x.t === parentType; });
@@ -940,6 +975,22 @@ const BlockEditor = (function () {
           if (separateClicks()) node.appendChild(el("div", "bk-note", "S'ajoute au cooldown de chaque clic."));
           break;
         case "maxUse": add("utilisable"); add(num(block, "count", 1, 999, 1)); add("fois maximum"); break;
+        case "itemGlint":
+          add("faire briller l'objet (comme enchanté)");
+          if (prog.look.some(function (x) { return x.t === "itemEnchant"; })) node.appendChild(el("div", "bk-note", "Un objet enchanté brille déjà : ce bloc ne change rien avec « enchanter l'objet »."));
+          break;
+        case "itemEnchant":
+          add("enchanter l'objet :");
+          add(choice(block, "enchant", Object.keys(opts.enchants).map(function (k) { return [k, opts.enchants[k]]; }), function (v) {
+            return prog.look.some(function (x) { return x !== block && x.t === "itemEnchant" && x.enchant === v; }) ? "L'objet a déjà cet enchantement." : "";
+          }));
+          add("niveau"); add(num(block, "level", 1, 10, 1));
+          break;
+        case "itemHide":
+          add("cacher les enchantements");
+          if (!prog.look.some(function (x) { return x.t === "itemEnchant"; })) node.appendChild(el("div", "bk-note", "Sans effet sans « enchanter l'objet » : il n'y a aucun enchantement à cacher (« faire briller » cache déjà le sien)."));
+          break;
+        case "itemUnbreakable": add("rendre l'objet incassable"); break;
         case "blockFx":
           add("empêcher les joueurs à moins de"); add(num(block, "radius", 1, 100, 1)); add("blocs d'obtenir :");
           break;
@@ -1145,6 +1196,11 @@ const BlockEditor = (function () {
       script.replaceChildren();
       script.appendChild(hatNode());
       const ev = evType();
+      if (ev === "evItem") prog.look.forEach(function (block, j) { // apparence de l'objet, juste sous le départ
+        const n = blockNode(block, { look: j }, null);
+        dropZone(n, "root");
+        script.appendChild(n);
+      });
       if (ev && ev !== "evItem") { // commande ou passif : blocs directement sous le départ
         prog.body.forEach(function (block, j) {
           const n = blockNode(block, { body: j }, null);

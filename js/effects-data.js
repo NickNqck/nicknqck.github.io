@@ -17,3 +17,15 @@ const EFFECT_WHEN_LABELS = {
 
 // Effets qu'un passif ne peut JAMAIS empêcher (même si l'utilisateur les sélectionne : le jar les ignore aussi)
 const PROTECTED_EFFECTS = ["ABSORPTION", "REGENERATION"];
+
+// Enchantements proposés pour l'objet d'un pouvoir (noms exacts d'Enchantment dans Spigot 1.8.8)
+const ENCHANT_LABELS = {
+  DAMAGE_ALL: "Tranchant", DAMAGE_UNDEAD: "Châtiment", DAMAGE_ARTHROPODS: "Fléau des arthropodes", KNOCKBACK: "Recul",
+  FIRE_ASPECT: "Aura de feu", LOOT_BONUS_MOBS: "Butin", DIG_SPEED: "Efficacité", SILK_TOUCH: "Toucher de soie",
+  DURABILITY: "Solidité", LOOT_BONUS_BLOCKS: "Fortune", ARROW_DAMAGE: "Puissance", ARROW_KNOCKBACK: "Frappe",
+  ARROW_FIRE: "Flamme", ARROW_INFINITE: "Infinité", PROTECTION_ENVIRONMENTAL: "Protection", PROTECTION_FIRE: "Protection contre le feu",
+  PROTECTION_FALL: "Chute amortie", PROTECTION_EXPLOSIONS: "Protection contre les explosions",
+  PROTECTION_PROJECTILE: "Protection contre les projectiles", OXYGEN: "Respiration", WATER_WORKER: "Affinité aquatique",
+  THORNS: "Épines", DEPTH_STRIDER: "Agilité aquatique", LUCK: "Chance de la mer", LURE: "Appât"
+};
+const MAX_ITEM_ENCHANTS = 5;

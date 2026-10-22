@@ -324,8 +324,11 @@ const ClassGen = (function () {
         ? [0xbb].concat(u2(P.cls(COOLDOWN)), [0x59, 0x11], u2(spec.cooldown), [0xb7], m(COOLDOWN, "<init>", "(I)V"))
         : [0x01]);
       if (ITEM) {
-        c = c.concat([0x13], u2(P.str(spec.material)), [0x13], u2(P.str(spec.itemName)), [0xb8],
-          m(SUPPORT, "itemBuilder", "(Ljava/lang/String;Ljava/lang/String;)L" + BUILDER + ";"));
+        // avec une apparence (brillant, enchantements, incassable) : itemBuilder(matériau, nom, apparence)
+        c = c.concat([0x13], u2(P.str(spec.material)), [0x13], u2(P.str(spec.itemName)));
+        c = spec.look
+          ? c.concat([0x13], u2(P.str(spec.look)), [0xb8], m(SUPPORT, "itemBuilder", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)L" + BUILDER + ";"))
+          : c.concat([0xb8], m(SUPPORT, "itemBuilder", "(Ljava/lang/String;Ljava/lang/String;)L" + BUILDER + ";"));
       }
       c.push(0x2b); // le rôle (aload_1)
       if (COMMAND) c = c.concat([0x13], u2(P.str(spec.param)));

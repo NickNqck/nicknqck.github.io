@@ -160,7 +160,7 @@ const JavaGen = (function () {
     const args = [lit(spec.name)];
     if (COMMAND) args.push(lit(spec.command), lit(spec.arg));
     args.push(cooldown);
-    if (ITEM) args.push("RoleSupport.itemBuilder(" + lit(spec.material) + ", " + lit(spec.itemName) + ")");
+    if (ITEM) args.push("RoleSupport.itemBuilder(" + lit(spec.material) + ", " + lit(spec.itemName) + (spec.look ? ", " + lit(spec.look) : "") + ")");
     args.push("role");
     if (COMMAND) args.push(lit(spec.param));
     spec.descriptions.forEach(function (d) { args.push(lit(d)); });

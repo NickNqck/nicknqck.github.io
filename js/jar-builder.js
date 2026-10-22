@@ -165,7 +165,7 @@ const JarBuilder = (function () {
 
       // Objet à activer : param = "action du clic gauche|action du clic droit|cooldownGauche;cooldownDroit" ("-" = ce clic ne fait rien),
       // une action = "EFFET,ticks,amplificateur,distanceDeVisée" (distance 0 = sans visée, l'effet va à l'utilisateur)
-      let material = "", itemName = "";
+      let material = "", itemName = "", look = "";
       if (p.kind === "ITEM") {
         const title = stripMc(p.title);
         if (typeof p.powerItem !== "string" || !/^[A-Z0-9_]{2,40}$/.test(p.powerItem)) throw new Error("Objet invalide pour le pouvoir " + title);
@@ -238,6 +238,19 @@ const JarBuilder = (function () {
         param = left + "|" + right + "|" + cdLeft + ";" + cdRight;
         material = p.powerItem;
         itemName = mc(p.title);
+        // apparence de l'objet : "brillant;cachés;incassable;ENCHANT:niveau,ENCHANT:niveau" (vide = objet simple)
+        const enchants = p.itemEnchants || [];
+        if (!Array.isArray(enchants) || enchants.length > MAX_ITEM_ENCHANTS) throw new Error("Enchantements invalides pour le pouvoir " + title);
+        const seenEnchant = {};
+        enchants.forEach(function (e) {
+          if (!e || !ENCHANT_LABELS[e.enchant] || seenEnchant[e.enchant] || !Number.isInteger(e.level) || e.level < 1 || e.level > 10)
+            throw new Error("Enchantement invalide pour le pouvoir " + title);
+          seenEnchant[e.enchant] = true;
+        });
+        if (p.itemGlint || p.itemHideEnchants || p.itemUnbreakable || enchants.length) {
+          look = [p.itemGlint ? 1 : 0, p.itemHideEnchants ? 1 : 0, p.itemUnbreakable ? 1 : 0].join(";") + ";" +
+            enchants.map(function (e) { return e.enchant + ":" + e.level; }).join(",");
+        }
       }
       if (typeof p.title !== "string" || p.title.length > 40 || !MC_OK.test(p.title) || !stripMc(p.title))
         throw new Error("Nom de pouvoir invalide pour le rôle " + role.constant);
@@ -253,7 +266,7 @@ const JarBuilder = (function () {
       const name = mc(p.title);
       return { className: POWER_PACKAGE + role.constant + "_" + id, name: /\u00a7r$/.test(name) ? name : name + "\u00a7r",
         cooldown: p.cooldown, maxUse: p.maxUse, kind: p.kind, radius: blocker ? p.radius : 0,
-        param: param, material: material, itemName: itemName, command: command, arg: arg,
+        param: param, material: material, itemName: itemName, look: look, command: command, arg: arg,
         descriptions: (autoLine ? [autoLine] : armorLine ? [armorLine] : []).concat(String(p.description || "") === "" ? [] : lines.map(mc)) };
     });
   }

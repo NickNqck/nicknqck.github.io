@@ -233,6 +233,13 @@ const MENU = {
 
             // --- Objet à activer : matériau (dans le bloc de départ), clic(s) qui l'activent, puis l'action de chaque clic ---
             { type: "item", id: "powerItem", label: "Objet du pouvoir", default: "IRON_SWORD", inBlocks: true, showIf: { kind: "ITEM" } },
+            // Apparence de l'objet (ItemBuilder d'UHC-Meetup) : brillance seule, vrais enchantements (visibles ou cachés), incassable
+            { type: "toggle", id: "itemGlint", label: "Objet brillant (comme enchanté)", default: false, optional: true, inBlocks: true, showIf: { kind: "ITEM" } },
+            { type: "enchantlist", id: "itemEnchants", label: "Enchantements de l'objet", default: [], max: MAX_ITEM_ENCHANTS, optional: true, inBlocks: true,
+              invalidMessage: "Un bloc « enchanter l'objet » est invalide : niveau de 1 à 10, chaque enchantement une seule fois.",
+              showIf: { kind: "ITEM" } },
+            { type: "toggle", id: "itemHideEnchants", label: "Enchantements cachés", default: false, optional: true, inBlocks: true, showIf: { kind: "ITEM" } },
+            { type: "toggle", id: "itemUnbreakable", label: "Objet incassable", default: false, optional: true, inBlocks: true, showIf: { kind: "ITEM" } },
             { type: "select", id: "clickMode", label: "Clic(s) qui activent l'objet", default: "RIGHT_ONLY", inBlocks: true,
               invalidMessage: "Chaque bloc « si » doit contenir son capteur (catégorie Capteurs) : un clic pour les « si » du programme, « viser un joueur » pour un « si » placé dans un clic. Il faut au moins un « si ».",
               options: ["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT"],
