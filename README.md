@@ -31,7 +31,7 @@ Trois façons de le fournir :
     js/
       app.js            moteur des menus, import/export, compilation
       menu-data.js      les menus (c'est ici qu'on ajoute des boutons)
-      blocks.js         éditeur à blocs (façon Scratch) des pouvoirs d'objet : modifie les mêmes réglages que le formulaire
+      blocks.js         éditeur à blocs (façon Scratch) : seule façon de créer un pouvoir (objet, commande, passifs, cooldown)
       items-data.js, colors-data.js, effects-data.js, meetup-modes.js, meetup-teams.js   données
       commands-data.js  règles des commandes personnalisées (format, noms déjà pris par UHC-Meetup / Minecraft)
       classgen.js       génère les classes Java (enums d'équipes et de rôles, rôles, pouvoirs)

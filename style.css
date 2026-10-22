@@ -431,3 +431,11 @@ body.bk-noscroll { overflow: hidden; }
 :root[data-theme="light"] .mcprev:not(:empty), :root[data-theme="light"] .preview { display: inline-block; flex: 0 0 auto; width: auto;
   justify-self: start; align-self: flex-start; }
 .themebtn { white-space: nowrap; min-width: 2.8rem; font-size: 1.15rem; line-height: 1; }
+
+/* Bloc de départ (catégorie Événements) et blocs des passifs */
+.bk-pal.bk-hat { border-radius: 14px 14px 5px 5px; margin-bottom: 0; }
+.bk-hat .bk-note { color: #3b2a00; }
+.bk-hat .bk-cond-empty { color: #fff; }
+.bk input.bk-in.bk-arg { flex: 0 0 auto; width: 7.5rem; max-width: 100%; align-self: center; text-align: left; }
+.bk-otherline { padding-top: .25rem; cursor: default; }
+.bk-palhint { color: var(--text); padding: 0 0 .3rem; }

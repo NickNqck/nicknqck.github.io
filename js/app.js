@@ -396,9 +396,15 @@
     if (it.type === "heading") return el("h3", "subhead", it.label);
     if (it.type === "itemblocks") { // éditeur à blocs : il modifie directement les champs des clics du brouillon
       const siblings = editing && editing.sub ? editing.sub.field.fields : [];
+      const mode = editing && editing.draft ? editing.draft.mdj : "";
       return BlockEditor.render(obj, {
         dflt: function (id) { const f = siblings.find(function (x) { return x.id === id; }); return f ? copyDefault(f) : undefined; },
-        itemName: function (id) { const i = ITEMS.find(function (x) { return x.id === id; }); return i ? i.name : id; },
+        items: ITEMS,
+        commands: (state[COMMANDS_ID] || []).map(function (c) { return c.name; }),
+        argPattern: ARG_PATTERN, reserved: RESERVED_ARGS, maxCommandEffects: MAX_COMMAND_EFFECTS,
+        blockable: Object.keys(POTION_LABELS).filter(function (k) { return PROTECTED_EFFECTS.indexOf(k) === -1; }),
+        teams: (mode ? modeTeams(mode) : []).map(function (t) { return { id: t.id, name: t.name }; }),
+        teamName: teamLabel,
         potions: POTION_LABELS, colors: COLORS
       });
     }
@@ -958,9 +964,9 @@
     const ed = editing, sub = ed.sub, f = sub.field;
     menu.appendChild(el("h2", "q", sub.index < 0 ? (f.createLabel || "Ajouter") : "Modifier : " + ed.draft[f.id][sub.index].name));
     const rows = el("div", "rows");
-    // uiHideIf : caché à l'écran seulement (ex. champs des clics quand le pouvoir s'affiche en blocs), toujours validé
+    // inBlocks : réglé uniquement dans l'éditeur à blocs (jamais affiché comme champ), mais toujours validé et enregistré
     const shown = function () {
-      return f.fields.filter(function (x) { return visible(x, sub.draft) && !(x.uiHideIf && visible({ showIf: x.uiHideIf }, sub.draft)); });
+      return f.fields.filter(function (x) { return visible(x, sub.draft) && !x.inBlocks; });
     };
     const before = shown().map(function (x) { return x.id; }).join();
     shown().forEach(function (x) { rows.appendChild(control(x, sub.draft)); });
@@ -985,7 +991,12 @@
         if (!visible(x, out)) { out[x.id] = copyDefault(x); continue; }
         const raw = sub.draft[x.id] === undefined && x.optional ? copyDefault(x) : sub.draft[x.id];
         const v = clean(x, raw, out);
-        if (v === undefined) { err.textContent = x.invalidMessage || "Valeur invalide ou manquante : " + x.label + "."; return; }
+        if (v === undefined) {
+          err.textContent = x.invalidMessage || (x.inBlocks
+            ? "Un bloc du programme a une valeur invalide (« " + x.label + " ») : corrige les cases en rouge."
+            : "Valeur invalide ou manquante : " + x.label + ".");
+          return;
+        }
         out[x.id] = v;
       }
       out.name = autoNameOf(f, out);

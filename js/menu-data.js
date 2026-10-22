@@ -22,10 +22,10 @@
 // Le groupe "a" sert au clic gauche (ou aux deux clics), le groupe "b" au clic droit.
 const CLICK_MODES_A = ["LEFT_ONLY", "BOTH_SAME", "DIFFERENT"];
 const CLICK_MODES_B = ["RIGHT_ONLY", "DIFFERENT"];
-// uiHideIf : champ caché à l'écran (mais toujours validé et enregistré) quand le pouvoir s'affiche en blocs
-const BLOCKS_VIEW = { editorView: "BLOCKS" };
+// inBlocks : réglage modifié uniquement par l'éditeur à blocs (js/blocks.js), jamais affiché comme champ de formulaire,
+// mais toujours validé, enregistré, exporté et importé comme avant
 function clickFields(prefix, modes) {
-  return clickFieldsRaw(prefix, modes).map(function (f) { return Object.assign(f, { uiHideIf: BLOCKS_VIEW }); });
+  return clickFieldsRaw(prefix, modes).map(function (f) { return Object.assign(f, { inBlocks: true }); });
 }
 function clickFieldsRaw(prefix, modes) {
   const when = { kind: "ITEM", clickMode: modes };
@@ -154,9 +154,9 @@ const MENU = {
           // Un clic qui ne téléporte pas doit donner au moins un effet (sinon il ne fait rien)
           validate: function (p) {
             if (p.kind === "NO_ARMOR" && !(p.armorEffects || []).length && !p.armorNoFall)
-              return "Ajoute au moins un effet, ou coche l'insensibilité aux chutes.";
+              return "Dans « si je ne porte aucune armure », ajoute au moins un effet ou « insensible aux dégâts de chute ».";
             if (p.kind === "COMMAND_EFFECTS") {
-              if (!(p.cmdEffects || []).length) return "Ajoute au moins un effet pour ce pouvoir.";
+              if (!(p.cmdEffects || []).length) return "Ajoute au moins un bloc « donner un effet » sous « quand le joueur tape … ».";
               if (RESERVED_ARGS.indexOf(p.arg) !== -1) return "L'argument « " + p.arg + " » est déjà pris (/commande me et /commande roles existent déjà).";
               return "";
             }
@@ -167,7 +167,7 @@ const MENU = {
             for (let i = 0; i < groups.length; i++) {
               const g = groups[i][0], effects = (p[g + "Effects"] || []).length;
               if (p[g + "Action"] === "EFFECT_ONLY" && !effects)
-                return "Ajoute au moins un effet pour l'action du " + groups[i][1] + ".";
+                return "Le « si " + groups[i][1] + " » ne fait rien : ajoute-lui au moins un bloc (effet, téléportation, projectile ou zone).";
               if (p[g + "Action"] === "AREA" && !(p[g + "AreaDamage"] > 0) && !(p[g + "AreaUp"] > 0) && !effects)
                 return "Pour la zone du " + groups[i][1] + " : choisis au moins des dégâts, une propulsion ou un effet.";
               if (p[g + "Action"] === "LAUNCH" && !p[g + "ImpactTp"] && !p[g + "Zone"] && !effects)
@@ -182,69 +182,68 @@ const MENU = {
             return same ? "Un autre pouvoir de ce rôle utilise déjà /" + p.command + " " + p.arg + "." : "";
           },
           fields: [
-            { type: "select", id: "kind", label: "Type de pouvoir", default: "PASSIVE",
+            // Le type n'est plus choisi dans une liste : il vient du bloc de départ et du comportement passif du programme
+            { type: "select", id: "kind", label: "Type de pouvoir", default: "", inBlocks: true,
+              invalidMessage: "Le programme doit commencer par un bloc de départ (catégorie Événements) : quand le joueur utilise un objet, tape une commande, ou en permanence.",
               options: ["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "NO_ARMOR", "ITEM", "COMMAND_EFFECTS"],
               labels: { PASSIVE: "Passif simple (description seule)",
                         BLOCK_EFFECT: "Passif : empêche les joueurs proches d'obtenir des effets",
                         BLOCK_POWER: "Passif : empêche les joueurs proches d'utiliser un pouvoir",
                         INFO: "Passif : révèle le camp des joueurs restés à proximité",
                         NO_ARMOR: "Passif : bonus quand le joueur ne porte aucune armure",
-                        ITEM: "Objet à activer au clic (donne un effet)",
+                        ITEM: "Objet à activer au clic",
                         COMMAND_EFFECTS: "Commande : active / désactive des effets" } },
             { type: "mctext", id: "title", label: "Nom du pouvoir", default: "", max: 40, hint: "ex. &bMon pouvoir" },
             { type: "textarea", id: "description", label: "Description (facultative)", default: "", max: 400,
               hint: "Une phrase par ligne (6 lignes maximum). Couleurs : &a, &c... (&r pour revenir à la normale)" },
 
+            // Programme en blocs : la seule façon de régler ce que fait le pouvoir (tous les champs inBlocks ci-dessous)
+            { type: "itemblocks", id: "blocks", label: "Programme du pouvoir" },
+
             // --- Passifs : blocage d'effets / de pouvoirs, information ---
-            { type: "number", id: "radius", label: "Rayon d'action (blocs)", default: 15, min: 1, max: 100, step: 1,
+            { type: "number", id: "radius", label: "Rayon d'action (blocs)", default: 15, min: 1, max: 100, step: 1, inBlocks: true,
               showIf: { kind: ["BLOCK_EFFECT", "BLOCK_POWER", "INFO"] } },
             // plusieurs effets au choix ; Absorption et Régénération sont absents de la liste : toujours autorisés
-            { type: "multiselect", id: "blockedEffects", label: "Effets empêchés (au moins un)", default: [], min: 1,
+            { type: "multiselect", id: "blockedEffects", label: "Effets empêchés (au moins un)", default: [], min: 1, inBlocks: true,
+              invalidMessage: "Dans « empêcher les joueurs proches d'obtenir des effets », ajoute au moins un bloc « l'effet … », chaque effet une seule fois.",
               options: Object.keys(POTION_LABELS).filter(function (k) { return PROTECTED_EFFECTS.indexOf(k) === -1; }),
-              labels: POTION_LABELS, showIf: { kind: "BLOCK_EFFECT" },
-              note: "Absorption et Régénération ne peuvent jamais être empêchées." },
+              labels: POTION_LABELS, showIf: { kind: "BLOCK_EFFECT" } },
             // Information : temps à rester dans le rayon, puis couleur des particules selon le camp
-            { type: "number", id: "needSeconds", label: "Temps à passer à proximité (secondes)", default: 240, min: 5, max: 3600, step: 1,
+            { type: "number", id: "needSeconds", label: "Temps à passer à proximité (secondes)", default: 240, min: 5, max: 3600, step: 1, inBlocks: true,
               showIf: { kind: "INFO" } },
-            { type: "teamcolors", id: "teamColors", label: "Couleur par camp", default: {}, showIf: { kind: "INFO" } },
-            { type: "color", id: "defaultColor", label: "Couleur des autres camps", default: "9", showIf: { kind: "INFO" } },
+            { type: "teamcolors", id: "teamColors", label: "Couleur par camp", default: {}, inBlocks: true, showIf: { kind: "INFO" } },
+            { type: "color", id: "defaultColor", label: "Couleur des autres camps", default: "9", inBlocks: true, showIf: { kind: "INFO" } },
             // Sans armure (comme l'invisibilité de Hantengu) : effets maintenus et / ou NoFall tant qu'aucune pièce d'armure n'est portée
-            { type: "effectlist", id: "armorEffects", label: "Effets tant qu'aucune armure n'est portée", default: [], max: 5,
+            { type: "effectlist", id: "armorEffects", label: "Effets tant qu'aucune armure n'est portée", default: [], max: 5, inBlocks: true,
               hideWho: true, hideSeconds: true, allowTarget: function () { return false; }, optional: true, showIf: { kind: "NO_ARMOR" } },
-            { type: "toggle", id: "armorNoFall", label: "Insensible aux dégâts de chute sans armure", default: false, optional: true,
+            { type: "toggle", id: "armorNoFall", label: "Insensible aux dégâts de chute sans armure", default: false, optional: true, inBlocks: true,
               showIf: { kind: "NO_ARMOR" } },
 
             // --- Commande : /commande <argument> active le pouvoir, la même commande le désactive ---
-            { type: "mycommand", id: "command", label: "Commande", default: "", showIf: { kind: "COMMAND_EFFECTS" } },
-            { type: "text", id: "arg", label: "Argument (/commande <argument>)", default: "", max: 20, pattern: ARG_PATTERN,
-              hint: "ex. bonus : minuscules, chiffres et _", showIf: { kind: "COMMAND_EFFECTS" } },
+            { type: "mycommand", id: "command", label: "Commande", default: "", inBlocks: true, showIf: { kind: "COMMAND_EFFECTS" },
+              invalidMessage: "Choisis une commande dans « quand le joueur tape … » (crée-la d'abord dans le menu Commandes de l'addon)." },
+            { type: "text", id: "arg", label: "Argument (/commande <argument>)", default: "", max: 20, pattern: ARG_PATTERN, inBlocks: true,
+              invalidMessage: "Argument invalide dans « quand le joueur tape … » : 1 à 20 caractères, minuscules, chiffres et _, en commençant par une lettre.",
+              showIf: { kind: "COMMAND_EFFECTS" } },
             // durée 0 = l'effet reste tant que le pouvoir est activé ; sinon il dure ce nombre de secondes après l'activation
             { type: "effectlist", id: "cmdEffects", label: "Effets (donnés au joueur qui active le pouvoir)", default: [], max: MAX_COMMAND_EFFECTS,
-              minSeconds: 0, secondsLabel: "durée (s, 0 = tant qu'activé)", hideWho: true, allowTarget: function () { return false; },
-              note: "Durée 0 : l'effet est maintenu jusqu'à ce que le joueur retape la commande. Durée en secondes : l'effet s'arrête seul. Le cooldown ne s'applique qu'à l'activation : on peut toujours désactiver.",
+              minSeconds: 0, hideWho: true, allowTarget: function () { return false; }, inBlocks: true,
+              invalidMessage: "Un bloc « donner un effet » est invalide : niveau de 1 à 10, durée de 0 à 1600 s.",
               showIf: { kind: "COMMAND_EFFECTS" } },
 
-            // --- Objet à activer : matériau, clic(s) qui l'activent, puis l'action de chaque clic (clickFields) ---
-            { type: "item", id: "powerItem", label: "Objet du pouvoir", default: "IRON_SWORD", showIf: { kind: "ITEM" } },
-            // Affichage : programme en blocs (js/blocks.js) ou formulaire classique ; les deux modifient les mêmes réglages
-            { type: "select", id: "editorView", label: "Affichage", default: "BLOCKS", optional: true,
-              options: ["BLOCKS", "FORM"], labels: { BLOCKS: "Blocs", FORM: "Formulaire" }, showIf: { kind: "ITEM" } },
-            { type: "itemblocks", id: "blocks", label: "Programme du pouvoir", showIf: { kind: "ITEM", editorView: "BLOCKS" } },
-            { type: "select", id: "clickMode", label: "Clic(s) qui activent l'objet", default: "RIGHT_ONLY", uiHideIf: BLOCKS_VIEW,
+            // --- Objet à activer : matériau (dans le bloc de départ), clic(s) qui l'activent, puis l'action de chaque clic ---
+            { type: "item", id: "powerItem", label: "Objet du pouvoir", default: "IRON_SWORD", inBlocks: true, showIf: { kind: "ITEM" } },
+            { type: "select", id: "clickMode", label: "Clic(s) qui activent l'objet", default: "RIGHT_ONLY", inBlocks: true,
               invalidMessage: "Chaque bloc « si » doit contenir son capteur (catégorie Capteurs) : un clic pour les « si » du programme, « viser un joueur » pour un « si » placé dans un clic. Il faut au moins un « si ».",
               options: ["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT"],
               labels: { LEFT_ONLY: "Clic gauche uniquement", RIGHT_ONLY: "Clic droit uniquement",
                         BOTH_SAME: "Les deux clics font la même chose", DIFFERENT: "Chaque clic fait une action différente" },
-              showIf: { kind: "ITEM" } },
-            { type: "heading", id: "hLeft", label: "Clic gauche", showIf: { kind: "ITEM", clickMode: ["LEFT_ONLY", "DIFFERENT"] }, uiHideIf: BLOCKS_VIEW },
-            { type: "heading", id: "hBoth", label: "Clic gauche et clic droit", showIf: { kind: "ITEM", clickMode: "BOTH_SAME" }, uiHideIf: BLOCKS_VIEW }
-          ].concat(clickFields("a", CLICK_MODES_A), [
-            { type: "heading", id: "hRight", label: "Clic droit", showIf: { kind: "ITEM", clickMode: ["RIGHT_ONLY", "DIFFERENT"] }, uiHideIf: BLOCKS_VIEW }
-          ], clickFields("b", CLICK_MODES_B), [
+              showIf: { kind: "ITEM" } }
+          ].concat(clickFields("a", CLICK_MODES_A), clickFields("b", CLICK_MODES_B), [
 
             // --- Communs à tous les types ---
-            { type: "number", id: "cooldown", label: "Cooldown (secondes, 0 = aucun)", default: 0, min: 0, max: 3600, step: 1 },
-            { type: "number", id: "maxUse", label: "Utilisations maximum (0 = illimité)", default: 0, min: 0, max: 999, step: 1 }
+            { type: "number", id: "cooldown", label: "Cooldown du pouvoir (secondes, 0 = aucun)", default: 0, min: 0, max: 3600, step: 1, inBlocks: true },
+            { type: "number", id: "maxUse", label: "Utilisations maximum (0 = illimité)", default: 0, min: 0, max: 999, step: 1, inBlocks: true }
           ]) }
       ] },
 
