@@ -209,7 +209,7 @@ const JarBuilder = (function () {
             if (!swatch) throw new Error("Couleur de zone invalide pour le pouvoir " + title);
             launch = [projectile, impactTp ? 1 : 0, zone ? 1 : 0, zr, zone ? hearts * 2 : 0, zs, swatch.hex.slice(1)].join(";");
           }
-          if (type === "AREA") { // zone : "rayon;ENEMIES|ALL;demi-cœurs;éclair;hauteur"
+          if (type === "AREA") { // zone : "rayon;ENEMIES|ALL;demi-cœurs;éclair;hauteur;sansDégâtsDeChute"
             const g = function (k, d) { return p[prefix + k] === undefined ? d : p[prefix + k]; };
             const ar = g("AreaRadius", 50), filter = g("AreaFilter", "ENEMIES"), dmg = g("AreaDamage", 0), up = g("AreaUp", 0);
             const light = g("AreaLightning", false) === true;
@@ -218,7 +218,8 @@ const JarBuilder = (function () {
             if (typeof dmg !== "number" || !Number.isInteger(dmg * 2) || dmg < 0 || dmg > 10) throw new Error("Dégâts de zone invalides pour le pouvoir " + title);
             if (!Number.isInteger(up) || up < 0 || up > 100) throw new Error("Propulsion invalide pour le pouvoir " + title);
             if (!(dmg > 0) && !(up > 0) && !effects.length) throw new Error("La zone du pouvoir " + title + " n'a aucune conséquence.");
-            launch = [ar, filter, dmg * 2, light ? 1 : 0, up].join(";");
+            const safeFall = up > 0 && g("AreaUpNoFall", false) === true;
+            launch = [ar, filter, dmg * 2, light ? 1 : 0, up, safeFall ? 1 : 0].join(";");
           }
           return type + "," + dist + "," + radius + "," + effects.join("+") + "," + launch;
         };

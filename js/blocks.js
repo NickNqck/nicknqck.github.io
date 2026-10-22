@@ -77,7 +77,7 @@ const BlockEditor = (function () {
     area: { cat: "area", zone: "branch", palette: "pour chaque joueur à moins de 50 blocs :" },
     areaDamage: { cat: "area", zone: "area", palette: "infliger 1 ❤ (sans tuer)" },
     areaLightning: { cat: "area", zone: "area", palette: "faire tomber un éclair" },
-    areaUp: { cat: "area", zone: "area", palette: "propulser de 50 blocs vers le haut (+ dégâts de chute)" },
+    areaUp: { cat: "area", zone: "area", palette: "propulser de 50 blocs vers le haut" },
     blockFx: { cat: "passive", zone: "root", passive: "BLOCK_EFFECT", palette: "empêcher les joueurs proches d'obtenir des effets :" },
     fxPick: { cat: "passive", zone: "child", parent: "blockFx", palette: "l'effet … (à empêcher)" },
     blockPow: { cat: "passive", zone: "root", passive: "BLOCK_POWER", palette: "empêcher les joueurs proches d'utiliser leurs pouvoirs" },
@@ -100,7 +100,7 @@ const BlockEditor = (function () {
   const CLICK_NAME = { LEFT: "clic gauche", RIGHT: "clic droit", ANY: "clic gauche ou clic droit" };
   const TP_TYPE = { tpBehind: "TP_BEHIND", tpAround: "TP_AROUND", tpToMe: "TP_TO_USER" };
   const FIELDS = ["Action", "Aim", "Distance", "TpDistance", "Radius", "Projectile", "ImpactTp", "Zone", "ZoneRadius",
-    "ZoneDamage", "ZoneSeconds", "ZoneColor", "Effects", "Cooldown", "AreaRadius", "AreaFilter", "AreaDamage", "AreaLightning", "AreaUp"];
+    "ZoneDamage", "ZoneSeconds", "ZoneColor", "Effects", "Cooldown", "AreaRadius", "AreaFilter", "AreaDamage", "AreaLightning", "AreaUp", "AreaUpNoFall"];
 
   let dragging = null; // bloc en cours de glisser-déposer : { mode: "new", type } ou { mode: "move", ref }
 
@@ -133,7 +133,7 @@ const BlockEditor = (function () {
       const inner = [];
       if (get("AreaDamage") > 0) inner.push({ t: "areaDamage", hearts: get("AreaDamage") });
       if (get("AreaLightning")) inner.push({ t: "areaLightning" });
-      if (get("AreaUp") > 0) inner.push({ t: "areaUp", height: get("AreaUp") });
+      if (get("AreaUp") > 0) inner.push({ t: "areaUp", height: get("AreaUp"), fall: get("AreaUpNoFall") ? "SAFE" : "DAMAGE" });
       effects.forEach(function (e) { if (e.who === "TARGET") inner.push(e); });
       blocks.push({ t: "area", radius: get("AreaRadius"), filter: get("AreaFilter"), blocks: inner });
       effects.forEach(function (e) { if (e.who !== "TARGET") { e.who = "USER"; blocks.push(e); } });
@@ -228,7 +228,7 @@ const BlockEditor = (function () {
       area.blocks.forEach(function (x) {
         if (x.t === "areaDamage") p[pf + "AreaDamage"] = x.hearts;
         if (x.t === "areaLightning") p[pf + "AreaLightning"] = true;
-        if (x.t === "areaUp") p[pf + "AreaUp"] = x.height;
+        if (x.t === "areaUp") { p[pf + "AreaUp"] = x.height; p[pf + "AreaUpNoFall"] = x.fall === "SAFE"; }
       });
       const mine = branch.blocks.filter(function (x) { return x.t === "effect"; }).map(function (x) {
         return { effect: x.effect, level: x.level, seconds: x.seconds, who: "USER" };
@@ -334,7 +334,7 @@ const BlockEditor = (function () {
       case "area": return { t: "area", radius: d("AreaRadius"), filter: d("AreaFilter"), blocks: [] };
       case "areaDamage": return { t: "areaDamage", hearts: 1 };
       case "areaLightning": return { t: "areaLightning" };
-      case "areaUp": return { t: "areaUp", height: 50 };
+      case "areaUp": return { t: "areaUp", height: 50, fall: "DAMAGE" };
       case "blockFx": return { t: "blockFx", radius: dflt("radius"), blocks: [] };
       case "fxPick": return { t: "fxPick", effect: "" };
       case "blockPow": return { t: "blockPow", radius: dflt("radius") };
@@ -945,8 +945,9 @@ const BlockEditor = (function () {
         case "areaDamage": add("infliger"); add(num(block, "hearts", 0.5, 10, 0.5)); add("❤ (sans tuer)"); break;
         case "areaLightning": add("faire tomber un éclair (sans dégâts)"); break;
         case "areaUp":
-          add("propulser de"); add(num(block, "height", 1, 100, 1)); add("blocs vers le haut");
-          node.appendChild(el("div", "bk-note", "Le joueur est téléporté en l'air et prend les dégâts de chute en retombant (comme Uchiwa : ils peuvent tuer)."));
+          add("propulser de"); add(num(block, "height", 1, 100, 1)); add("blocs vers le haut,");
+          add(choice(block, "fall", [["DAMAGE", "avec dégâts de chute"], ["SAFE", "sans dégâts de chute"]]));
+          node.appendChild(el("div", "bk-note", "Avec dégâts de chute : comme Uchiwa, la retombée peut tuer. Sans : la prochaine chute du joueur est annulée."));
           break;
         case "zone":
           add("zone de dégâts : rayon"); add(num(block, "radius", 1, 30, 1)); add("blocs,");

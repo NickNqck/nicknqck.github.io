@@ -2,6 +2,7 @@ package fr.nicknqck.addonbuilder;
 
 import fr.nicknqck.interfaces.ITeam;
 import fr.nicknqck.player.GamePlayer;
+import fr.nicknqck.utils.PotionUtils;
 import fr.nicknqck.utils.powers.Power;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -51,6 +52,8 @@ final class AreaSupport {
             }
             if (area.lightning) target.getWorld().strikeLightningEffect(target.getLocation());
             if (area.up > 0) {
+                // sans dégâts de chute : la prochaine chute du joueur est annulée par UHC-Meetup (PotionUtils)
+                if (area.safeFall) PotionUtils.addTempNoFall(target.getUniqueId(), 1);
                 Location up = target.getLocation().clone();
                 up.add(0, area.up, 0);
                 target.teleport(up);

@@ -67,8 +67,11 @@ function clickFieldsRaw(prefix, modes) {
       optional: true, showIf: act(["AREA"]) },
     { type: "toggle", id: prefix + "AreaLightning", label: "Faire tomber un éclair sur chaque joueur touché", default: false, optional: true,
       showIf: act(["AREA"]) },
-    { type: "number", id: prefix + "AreaUp", label: "Propulser chaque joueur touché vers le haut (blocs, 0 = non ; il prend les dégâts de chute en retombant)", default: 0, min: 0, max: 100, step: 1,
+    { type: "number", id: prefix + "AreaUp", label: "Propulser chaque joueur touché vers le haut (blocs, 0 = non)", default: 0, min: 0, max: 100, step: 1,
       optional: true, showIf: act(["AREA"]) },
+    // false : il prend les dégâts de chute en retombant (comme Uchiwa) ; true : sa prochaine chute est sans dégâts (PotionUtils.addTempNoFall)
+    { type: "toggle", id: prefix + "AreaUpNoFall", label: "Sans dégâts de chute en retombant", default: false, optional: true,
+      showIf: act(["AREA"]) },
 
     // la zone est dessinée en particules visibles par les joueurs, à sa création puis tant qu'elle est active
     { type: "color", id: prefix + "ZoneColor", label: "Couleur de la zone (cercle de particules)", default: "c",

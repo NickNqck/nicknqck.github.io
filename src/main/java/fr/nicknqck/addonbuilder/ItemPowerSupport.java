@@ -81,13 +81,15 @@ final class ItemPowerSupport {
         final int damageHalfHearts;  // dégâts (demi-cœurs) qui ne tuent jamais
         final boolean lightning;     // éclair (visuel) sur chaque joueur touché
         final int up;                // propulsion vers le haut (blocs)
+        final boolean safeFall;      // true : la retombée de la propulsion ne fait pas de dégâts (PotionUtils.addTempNoFall)
 
-        Area(int radius, boolean enemiesOnly, int damageHalfHearts, boolean lightning, int up) {
+        Area(int radius, boolean enemiesOnly, int damageHalfHearts, boolean lightning, int up, boolean safeFall) {
             this.radius = radius;
             this.enemiesOnly = enemiesOnly;
             this.damageHalfHearts = damageHalfHearts;
             this.lightning = lightning;
             this.up = up;
+            this.safeFall = safeFall;
         }
     }
 
@@ -168,9 +170,10 @@ final class ItemPowerSupport {
                     l.length > 6 ? Integer.parseInt(l[6], 16) : 0xFF5555);
         }
         Area area = null;
-        if ("AREA".equals(p[0])) { // "rayon;ENEMIES|ALL;demi-cœurs;éclair(0|1);hauteur"
+        if ("AREA".equals(p[0])) { // "rayon;ENEMIES|ALL;demi-cœurs;éclair(0|1);hauteur[;sans dégâts de chute(0|1)]"
             String[] a = p[4].split(";");
-            area = new Area(Integer.parseInt(a[0]), "ENEMIES".equals(a[1]), Integer.parseInt(a[2]), "1".equals(a[3]), Integer.parseInt(a[4]));
+            area = new Area(Integer.parseInt(a[0]), "ENEMIES".equals(a[1]), Integer.parseInt(a[2]), "1".equals(a[3]), Integer.parseInt(a[4]),
+                    a.length > 5 && "1".equals(a[5]));
         }
         return new Action(p[0], Integer.parseInt(p[1]), Integer.parseInt(p[2]), effects, launch, area);
     }
