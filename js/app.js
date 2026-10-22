@@ -16,6 +16,7 @@
     ["js/meetup-teams.js", has(function () { return MEETUP_TEAMS; })],
     ["js/commands-data.js", has(function () { return commandProblem; }) && has(function () { return COMMAND_PATTERN; })],
     ["js/blocks.js", has(function () { return BlockEditor; })],
+    ["js/describe.js", has(function () { return PowerDescriber; })],
     ["js/menu-data.js", has(function () { return MENU; })],
     ["js/vendor/jszip.min.js", has(function () { return JSZip; })],
     ["js/spigot-check.js", has(function () { return SpigotCheck; })]
@@ -444,7 +445,7 @@
     if (it.type === "list") return listControl(it, obj);
     const color = it.type === "color";
     const multi = it.type === "multiselect" || it.type === "teamcolors" || it.type === "effectlist";
-    const row = el(color || multi ? "div" : "label", color ? "row colorrow" : "row");
+    const row = el(color || multi || it.autoDescribe ? "div" : "label", color ? "row colorrow" : "row");
     let note = null;
     row.appendChild(el("span", "name", it.label));
     let input;
@@ -554,13 +555,39 @@
         syncExport();
       });
     } else if (it.type === "textarea") {
-      input = el("textarea"); input.rows = 4; input.maxLength = it.max || 400; input.value = obj[it.id];
-      if (it.hint) input.placeholder = it.hint;
+      const area = el("textarea"); area.rows = 4; area.maxLength = it.max || 400; area.value = obj[it.id];
+      if (it.hint) area.placeholder = it.hint;
       row.classList.add("wrap");
-      input.addEventListener("input", function () {
-        obj[it.id] = input.value.replace(/\r/g, "");
-        input.classList.toggle("bad", clean(it, obj[it.id]) === undefined);
+      area.addEventListener("input", function () {
+        obj[it.id] = area.value.replace(/\r/g, "");
+        area.classList.toggle("bad", clean(it, obj[it.id]) === undefined);
       });
+      input = area;
+      if (it.autoDescribe) { // description écrite d'après le programme du pouvoir (js/describe.js)
+        input = el("div", "autodesc");
+        input.appendChild(area);
+        const bar = el("div", "autodesc-bar");
+        const info = el("span", "note");
+        let previous = null;
+        const undo = button("btn dark small", "Annuler", function () {
+          area.value = previous; obj[it.id] = previous; previous = null;
+          undo.hidden = true; info.textContent = "Ancienne description remise.";
+        });
+        undo.hidden = true;
+        bar.appendChild(button("btn gold small", "Générer automatiquement", function () {
+          const res = PowerDescriber.describe(obj, POTION_LABELS);
+          info.classList.toggle("bad", !res.text);
+          if (!res.text) { info.textContent = res.reason; return; }
+          if (obj[it.id] && obj[it.id] !== res.text) { previous = obj[it.id]; undo.hidden = false; } else { undo.hidden = true; }
+          area.value = res.text; obj[it.id] = res.text;
+          area.classList.toggle("bad", clean(it, res.text) === undefined);
+          info.textContent = "Description générée d'après le programme" + (res.truncated ? " (raccourcie : 6 lignes et 400 caractères maximum)" : "") +
+            ". Tu peux la retoucher. Le cooldown et les utilisations sont déjà affichés par UHC-Meetup.";
+        }));
+        bar.appendChild(undo);
+        bar.appendChild(info);
+        input.appendChild(bar);
+      }
     } else if (it.type === "item") {
       input = el("button", "pick");
       input.type = "button";

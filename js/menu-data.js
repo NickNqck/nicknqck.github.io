@@ -210,7 +210,8 @@ const MENU = {
                         ITEM: "Objet à activer au clic",
                         COMMAND_EFFECTS: "Commande : active / désactive des effets" } },
             { type: "mctext", id: "title", label: "Nom du pouvoir", default: "", max: 40, hint: "ex. &bMon pouvoir" },
-            { type: "textarea", id: "description", label: "Description (facultative)", default: "", max: 400,
+            // autoDescribe : bouton « Générer automatiquement » (js/describe.js), à partir du programme en blocs
+            { type: "textarea", id: "description", label: "Description (facultative)", default: "", max: 400, autoDescribe: true,
               hint: "Une phrase par ligne (6 lignes maximum). Couleurs : &a, &c... (&r pour revenir à la normale)" },
 
             // Programme en blocs : la seule façon de régler ce que fait le pouvoir (tous les champs inBlocks ci-dessous)

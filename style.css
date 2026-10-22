@@ -439,3 +439,10 @@ body.bk-noscroll { overflow: hidden; }
 .bk input.bk-in.bk-arg { flex: 0 0 auto; width: 7.5rem; max-width: 100%; align-self: center; text-align: left; }
 .bk-otherline { padding-top: .25rem; cursor: default; }
 .bk-palhint { color: var(--text); padding: 0 0 .3rem; }
+
+/* Description du pouvoir : bouton « Générer automatiquement » */
+.autodesc { display: flex; flex-direction: column; gap: .4rem; flex: 1 1 100%; min-width: 0; }
+.autodesc textarea { width: 100%; }
+.autodesc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.autodesc-bar .note.bad { color: var(--err); }
+.autodesc-bar [hidden] { display: none; }
