@@ -29,3 +29,14 @@ const ENCHANT_LABELS = {
   THORNS: "Épines", DEPTH_STRIDER: "Agilité aquatique", LUCK: "Chance de la mer", LURE: "Appât"
 };
 const MAX_ITEM_ENCHANTS = 5;
+
+// Actions sur la cible (catégorie « Cible » des blocs) : le joueur frappé, ou le joueur visé.
+// amount : [min, max, pas] (null = sans valeur) ; flag : option oui / non
+const TARGET_ACTIONS = {
+  DAMAGE: { label: "dégâts en plus (❤, sans tuer)", amount: [0.5, 10, 0.5], dflt: 1 },
+  FIRE: { label: "enflammer (secondes)", amount: [1, 30, 1], dflt: 3 },
+  KNOCKBACK: { label: "repousser (force)", amount: [1, 5, 1], dflt: 2 },
+  UP: { label: "propulser vers le haut (blocs)", amount: [1, 100, 1], dflt: 10, flag: "sans dégâts de chute" },
+  LIGHTNING: { label: "éclair (sans dégâts)", amount: null },
+  STUN: { label: "étourdir (secondes)", amount: [1, 10, 1], dflt: 2, flag: "aveuglé" }
+};

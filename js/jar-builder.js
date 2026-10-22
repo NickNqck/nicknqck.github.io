@@ -163,23 +163,27 @@ const JarBuilder = (function () {
         autoLine = "\u00a77Commande : \u00a7a/" + command + " " + arg + "\u00a77 (l'activer, puis la retaper pour la d\u00e9sactiver)";
       }
 
-      // Objet à activer : param = "action du clic gauche|action du clic droit|cooldownGauche;cooldownDroit" ("-" = ce clic ne fait rien),
+      // Objet à activer : param = "action du clic gauche|action du clic droit|cooldownGauche;cooldownDroit[|action de la frappe|cooldown]"
+      // ("-" = ce clic ne fait rien),
       // une action = "EFFET,ticks,amplificateur,distanceDeVisée" (distance 0 = sans visée, l'effet va à l'utilisateur)
       let material = "", itemName = "", look = "";
       if (p.kind === "ITEM") {
         const title = stripMc(p.title);
         if (typeof p.powerItem !== "string" || !/^[A-Z0-9_]{2,40}$/.test(p.powerItem)) throw new Error("Objet invalide pour le pouvoir " + title);
-        if (["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT"].indexOf(p.clickMode) === -1) throw new Error("Clic invalide pour le pouvoir " + title);
+        if (["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT", "NONE"].indexOf(p.clickMode) === -1) throw new Error("Clic invalide pour le pouvoir " + title);
+        const onHit = p.onHit === true;
+        if (p.clickMode === "NONE" && !onHit) throw new Error("Le pouvoir " + title + " n'a ni clic ni frappe.");
         const TYPES = ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER", "LAUNCH", "AREA"];
         // action = "TYPE,distanceDeVisée,distanceAutour,effets,projectile" ; effets = "U|T:EFFET:ticks:amplificateur" séparés par "+" ;
         // projectile (LAUNCH seulement) = "PROJECTILE;tp;zone;rayon;dégâtsEnDemiCœurs;secondes;couleurHex"
-        const action = function (prefix) {
+        // hit : action « en frappant un joueur » (la cible est le joueur frappé : pas de visée, distance 0)
+        const action = function (prefix, hit) {
           const type = p[prefix + "Action"];
-          if (TYPES.indexOf(type) === -1) throw new Error("Action invalide pour le pouvoir " + title);
+          if (TYPES.indexOf(type) === -1 || (hit && TYPES.indexOf(type) > 3)) throw new Error("Action invalide pour le pouvoir " + title);
           const tp = type.indexOf("TP_") === 0;
-          const aim = tp || (type === "EFFECT_ONLY" && p[prefix + "Aim"] === true);
-          const dist = aim ? p[prefix + (tp ? "TpDistance" : "Distance")] : 0;
-          if (aim && (!Number.isInteger(dist) || dist < 1 || dist > 100)) throw new Error("Visée invalide pour le pouvoir " + title);
+          const aim = hit || tp || (type === "EFFECT_ONLY" && p[prefix + "Aim"] === true);
+          const dist = hit ? 0 : aim ? p[prefix + (tp ? "TpDistance" : "Distance")] : 0;
+          if (aim && !hit && (!Number.isInteger(dist) || dist < 1 || dist > 100)) throw new Error("Visée invalide pour le pouvoir " + title);
           const radius = type === "TP_AROUND" ? p[prefix + "Radius"] : 0;
           if (type === "TP_AROUND" && (!Number.isInteger(radius) || radius < 1 || radius > 30)) throw new Error("Distance autour de la cible invalide pour le pouvoir " + title);
           const list = p[prefix + "Effects"];
@@ -192,7 +196,26 @@ const JarBuilder = (function () {
             if (e.who === "TARGET" && !aim && type !== "AREA") throw new Error("Un effet pour la cible demande de viser un joueur (pouvoir " + title + ").");
             return (e.who === "TARGET" ? "T" : "U") + ":" + e.effect + ":" + (e.seconds * 20) + ":" + (e.level - 1);
           });
-          if (type === "EFFECT_ONLY" && !effects.length) throw new Error("Aucun effet pour le pouvoir " + title);
+          // actions sur la cible : "DAMAGE:demi-cœurs+FIRE:ticks+KNOCKBACK:force+UP:blocs:sansChute+LIGHTNING+STUN:ticks:aveuglé"
+          const targetList = p[prefix + "Target"] || [];
+          if (!Array.isArray(targetList) || targetList.length > 6) throw new Error("Actions sur la cible invalides pour le pouvoir " + title);
+          if (targetList.length && !aim) throw new Error("Une action sur la cible demande de viser ou de frapper un joueur (pouvoir " + title + ").");
+          const seenTarget = {};
+          const targets = targetList.map(function (t) {
+            const def = t && TARGET_ACTIONS[t.type];
+            if (!def || seenTarget[t.type]) throw new Error("Action sur la cible invalide pour le pouvoir " + title);
+            seenTarget[t.type] = true;
+            if (def.amount && (typeof t.amount !== "number" || t.amount < def.amount[0] || t.amount > def.amount[1])) throw new Error("Valeur invalide (" + t.type + ") pour le pouvoir " + title);
+            switch (t.type) {
+              case "DAMAGE": if (!Number.isInteger(t.amount * 2)) throw new Error("Dégâts invalides pour le pouvoir " + title); return "DAMAGE:" + (t.amount * 2);
+              case "FIRE": return "FIRE:" + (t.amount * 20);
+              case "KNOCKBACK": return "KNOCKBACK:" + t.amount;
+              case "UP": return "UP:" + t.amount + ":" + (t.flag ? 1 : 0);
+              case "LIGHTNING": return "LIGHTNING";
+              default: return "STUN:" + (t.amount * 20) + ":" + (t.flag ? 1 : 0);
+            }
+          });
+          if (type === "EFFECT_ONLY" && !effects.length && !targets.length) throw new Error("Aucun effet pour le pouvoir " + title);
           let launch = "";
           if (type === "LAUNCH") {
             const projectile = p[prefix + "Projectile"];
@@ -221,12 +244,13 @@ const JarBuilder = (function () {
             const safeFall = up > 0 && g("AreaUpNoFall", false) === true;
             launch = [ar, filter, dmg * 2, light ? 1 : 0, up, safeFall ? 1 : 0].join(";");
           }
-          return type + "," + dist + "," + radius + "," + effects.join("+") + "," + launch;
+          return type + "," + dist + "," + radius + "," + effects.join("+") + "," + launch + (targets.length ? "," + targets.join("+") : "");
         };
-        const first = p.clickMode === "RIGHT_ONLY" ? null : action("a");
+        const none = p.clickMode === "NONE";
+        const first = p.clickMode === "RIGHT_ONLY" || none ? null : action("a");
         const second = p.clickMode === "RIGHT_ONLY" || p.clickMode === "DIFFERENT" ? action("b") : null;
-        const left = p.clickMode === "RIGHT_ONLY" ? "-" : first;
-        const right = p.clickMode === "LEFT_ONLY" ? "-" : p.clickMode === "BOTH_SAME" ? first : second;
+        const left = p.clickMode === "RIGHT_ONLY" || none ? "-" : first;
+        const right = p.clickMode === "LEFT_ONLY" || none ? "-" : p.clickMode === "BOTH_SAME" ? first : second;
         // cooldown propre à chaque clic (seulement quand les deux clics sont différents), en secondes, 0 = aucun : "gauche;droit"
         let cdLeft = 0, cdRight = 0;
         if (p.clickMode === "DIFFERENT") {
@@ -237,6 +261,11 @@ const JarBuilder = (function () {
           });
         }
         param = left + "|" + right + "|" + cdLeft + ";" + cdRight;
+        if (onHit) { // « en frappant un joueur » : "|action de la frappe|cooldown de la frappe"
+          const cdHit = p.cCooldown === undefined ? 0 : p.cCooldown;
+          if (!Number.isInteger(cdHit) || cdHit < 0 || cdHit > 3600) throw new Error("Cooldown de frappe invalide pour le pouvoir " + title);
+          param += "|" + action("c", true) + "|" + cdHit;
+        }
         material = p.powerItem;
         itemName = mc(p.title);
         // apparence de l'objet : "brillant;cachés;incassable;ENCHANT:niveau,ENCHANT:niveau" (vide = objet simple)

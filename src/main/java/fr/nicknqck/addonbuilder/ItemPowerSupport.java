@@ -1,12 +1,14 @@
 package fr.nicknqck.addonbuilder;
 
 import fr.nicknqck.enums.EffectWhen;
+import fr.nicknqck.events.custom.UHCPlayerBattleEvent;
 import fr.nicknqck.player.GamePlayer;
 import fr.nicknqck.utils.powers.ItemPower;
 import fr.nicknqck.utils.powers.Power;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -29,6 +31,8 @@ import java.util.WeakHashMap;
  * Retourne true quand l'action a réussi (ce qui déclenche le cooldown et compte l'utilisation), false sinon.
  * Quand chaque clic fait une action différente, chaque clic peut avoir son PROPRE cooldown : il est alors porté par un
  * pouvoir caché (ClickPower) créé pour ce clic ; le cooldown de l'objet lui-même (s'il y en a un) s'applique en plus.
+ * « En frappant un joueur » (UHCPlayerBattleEvent d'UHC-Meetup, ItemPower.InteractType.ATTACK_ENTITY) : la cible est le
+ * joueur frappé, sans visée ; les actions de la catégorie « Cible » (TargetSupport) s'appliquent à lui.
  */
 final class ItemPowerSupport {
 
@@ -101,14 +105,16 @@ final class ItemPowerSupport {
         final List<Effect> effects;
         final Launch launch; // null sauf pour LAUNCH
         final Area area;     // null sauf pour AREA
+        final List<TargetSupport.TargetAction> targets; // actions sur le joueur visé ou frappé
 
-        Action(String type, int distance, int radius, List<Effect> effects, Launch launch, Area area) {
+        Action(String type, int distance, int radius, List<Effect> effects, Launch launch, Area area, List<TargetSupport.TargetAction> targets) {
             this.type = type;
             this.distance = distance;
             this.radius = radius;
             this.effects = effects;
             this.launch = launch;
             this.area = area;
+            this.targets = targets;
         }
     }
 
@@ -117,12 +123,16 @@ final class ItemPowerSupport {
         final Action right; // null = le clic droit ne fait rien
         final ClickPower leftPower;  // null = pas de cooldown propre au clic gauche
         final ClickPower rightPower; // null = pas de cooldown propre au clic droit
+        final Action hit;            // null = frapper un joueur ne fait rien
+        final ClickPower hitPower;   // null = pas de cooldown propre à la frappe
 
-        Config(Action left, Action right, ClickPower leftPower, ClickPower rightPower) {
+        Config(Action left, Action right, ClickPower leftPower, ClickPower rightPower, Action hit, ClickPower hitPower) {
             this.left = left;
             this.right = right;
             this.leftPower = leftPower;
             this.rightPower = rightPower;
+            this.hit = hit;
+            this.hitPower = hitPower;
         }
     }
 
@@ -146,7 +156,18 @@ final class ItemPowerSupport {
         ClickPower rightPower = right != null && rightSeconds > 0 ? new ClickPower(power, "clic droit", rightSeconds, right) : null;
         if (leftPower != null) power.getRole().addPower(leftPower);
         if (rightPower != null) power.getRole().addPower(rightPower);
-        Config parsed = new Config(left, right, leftPower, rightPower);
+        // « frapper un joueur » : "...|action de la frappe|cooldown de la frappe" (absent des anciens addons)
+        Action hit = sides.length > 3 ? parse(sides[3]) : null;
+        int hitSeconds = sides.length > 4 && !sides[4].isEmpty() ? Integer.parseInt(sides[4]) : 0;
+        ClickPower hitPower = hit != null && hitSeconds > 0 ? new ClickPower(power, "frappe", hitSeconds, hit) : null;
+        if (hitPower != null) {
+            hitPower.setSendCooldown(false); // en combat : pas de message de cooldown à chaque coup
+            power.getRole().addPower(hitPower);
+        }
+        // UHC-Meetup appelle l'objet deux fois par coup (avant et après les résistances) : sans ce réglage, chaque coup
+        // pendant le cooldown enverrait deux messages ; le cooldown reste affiché dans la barre d'action quand on tient l'objet
+        if (hit != null) power.setSendCooldown(false);
+        Config parsed = new Config(left, right, leftPower, rightPower, hit, hitPower);
         CONFIGS.put(power, parsed);
         if ((parsed.left != null && parsed.left.launch != null) || (parsed.right != null && parsed.right.launch != null)) {
             ProjectileSupport.register(power); // écouteur d'impact (ProjectileHitEvent)
@@ -155,7 +176,7 @@ final class ItemPowerSupport {
 
     private static Action parse(String text) {
         if ("-".equals(text)) return null;
-        String[] p = text.split(",", 5);
+        String[] p = text.split(",", -1);
         List<Effect> effects = new ArrayList<>();
         if (!p[3].isEmpty()) {
             for (String entry : p[3].split("\\+")) {
@@ -175,15 +196,23 @@ final class ItemPowerSupport {
             area = new Area(Integer.parseInt(a[0]), "ENEMIES".equals(a[1]), Integer.parseInt(a[2]), "1".equals(a[3]), Integer.parseInt(a[4]),
                     a.length > 5 && "1".equals(a[5]));
         }
-        return new Action(p[0], Integer.parseInt(p[1]), Integer.parseInt(p[2]), effects, launch, area);
+        return new Action(p[0], Integer.parseInt(p[1]), Integer.parseInt(p[2]), effects, launch, area,
+                TargetSupport.parse(p.length > 5 ? p[5] : ""));
     }
 
     static boolean use(ItemPower power, Player player, Map<String, Object> map) {
         Config config = CONFIGS.get(power);
         if (config == null) return false;
         ItemPower.InteractType type = power.getInteractType();
-        if (type == null || !"INTERACT".equals(type.name())) return false; // lâcher, casser... : sans effet
         Object event = map.get("event");
+        if (type != null && "ATTACK_ENTITY".equals(type.name())) { // frapper un joueur avec l'objet
+            if (config.hit == null) return false;
+            Player victim = victimOf(map);
+            if (victim == null) return false;
+            if (config.hitPower != null) return config.hitPower.checkUse(player, map);
+            return perform(power, power, config.hit, player, victim);
+        }
+        if (type == null || !"INTERACT".equals(type.name())) return false; // lâcher, casser... : sans effet
         if (!(event instanceof PlayerInteractEvent)) return false;
         String click = ((PlayerInteractEvent) event).getAction().name();
         if ("PHYSICAL".equals(click)) return false;
@@ -201,6 +230,25 @@ final class ItemPowerSupport {
      * dont les règles s'appliquent (l'objet, ou le pouvoir caché du clic) et qui sert à viser un joueur.
      */
     static boolean perform(ItemPower item, Power caller, Action action, Player player) {
+        return perform(item, caller, action, player, null);
+    }
+
+    /**
+     * Joueur frappé d'un UHCPlayerBattleEvent, ou null : seulement au 1er appel (avant les résistances, isPatch() faux)
+     * et si le coup n'est pas annulé — UHC-Meetup appelle l'objet une 2e fois après les résistances.
+     */
+    static Player victimOf(Map<String, Object> map) {
+        Object event = map.get("event");
+        if (!(event instanceof UHCPlayerBattleEvent)) return null;
+        UHCPlayerBattleEvent battle = (UHCPlayerBattleEvent) event;
+        if (battle.isPatch()) return null;
+        EntityDamageByEntityEvent origin = battle.getOriginEvent();
+        if (origin == null || origin.isCancelled() || !(origin.getEntity() instanceof Player)) return null;
+        return (Player) origin.getEntity();
+    }
+
+    /** victim != null : action d'une frappe, la cible est le joueur frappé (pas de visée, pas de message à chaque coup). */
+    static boolean perform(ItemPower item, Power caller, Action action, Player player, Player victim) {
         ItemPower power = item;
         if ("AREA".equals(action.type)) return AreaSupport.apply(item, player, action); // zone autour de l'utilisateur
         if ("LAUNCH".equals(action.type)) { // le projectile part tout de suite ; les conséquences arrivent à l'impact
@@ -209,8 +257,8 @@ final class ItemPowerSupport {
             return true;
         }
         // 1. visée
-        Player target = null;
-        if (action.distance > 0) {
+        Player target = victim;
+        if (victim == null && action.distance > 0) {
             caller.setTargetDistance(action.distance);
             target = caller.getTarget();
             if (target == null) {
@@ -225,7 +273,9 @@ final class ItemPowerSupport {
             Player receiver = effect.onTarget ? target : player;
             if (receiver != null && !give(power, receiver, effect)) return false;
         }
-        player.sendMessage("\u00a77Vous avez utilis\u00e9\u00a7r " + power.getName() + "\u00a77.");
+        // 4. actions sur la cible (catégorie « Cible »)
+        if (target != null && !action.targets.isEmpty()) TargetSupport.apply(player, target, action.targets);
+        if (victim == null) player.sendMessage("\u00a77Vous avez utilis\u00e9\u00a7r " + power.getName() + "\u00a77.");
         return true;
     }
 

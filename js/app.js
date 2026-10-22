@@ -12,7 +12,7 @@
     ["js/items-data.js", has(function () { return ITEMS; })],
     ["js/colors-data.js", has(function () { return COLORS; })],
     ["js/meetup-modes.js", has(function () { return MEETUP_MODES; })],
-    ["js/effects-data.js", has(function () { return POTION_LABELS; }) && has(function () { return PROTECTED_EFFECTS; }) && has(function () { return ENCHANT_LABELS; })],
+    ["js/effects-data.js", has(function () { return POTION_LABELS; }) && has(function () { return PROTECTED_EFFECTS; }) && has(function () { return ENCHANT_LABELS; }) && has(function () { return TARGET_ACTIONS; })],
     ["js/meetup-teams.js", has(function () { return MEETUP_TEAMS; })],
     ["js/commands-data.js", has(function () { return commandProblem; }) && has(function () { return COMMAND_PATTERN; })],
     ["js/blocks.js", has(function () { return BlockEditor; })],
@@ -157,6 +157,25 @@
           if (!Number.isInteger(e.level) || e.level < 1 || e.level > 10) return undefined;
           seen[e.enchant] = true;
           out.push({ enchant: e.enchant, level: e.level });
+        }
+        return out;
+      }
+      case "targetlist": { // actions sur la cible : [{ type, amount, flag }], chaque type une seule fois (TARGET_ACTIONS)
+        if (v === undefined) return [];
+        if (!Array.isArray(v) || v.length > Object.keys(TARGET_ACTIONS).length) return undefined;
+        const seen = Object.create(null), out = [];
+        for (let n = 0; n < v.length; n++) {
+          const e = v[n], def = e && TARGET_ACTIONS[e.type];
+          if (!def || seen[e.type]) return undefined;
+          seen[e.type] = true;
+          const o = { type: e.type };
+          if (def.amount) {
+            const r = def.amount;
+            if (typeof e.amount !== "number" || e.amount < r[0] || e.amount > r[1] || Math.round(e.amount / r[2]) * r[2] !== e.amount) return undefined;
+            o.amount = e.amount;
+          }
+          if (def.flag) { if (typeof e.flag !== "boolean") return undefined; o.flag = e.flag; }
+          out.push(o);
         }
         return out;
       }
@@ -1070,6 +1089,7 @@
     if (f.type === "item") { const i = ITEMS.find(function (x) { return x.id === v; }); return i ? i.name : v; }
     if (f.type === "mdj" || f.type === "mymdj") return modeLabel(v);
     if (f.type === "effectlist") return (v || []).length + " effet(s)";
+    if (f.type === "targetlist") return (v || []).length + " action(s) sur la cible";
     if (f.type === "enchantlist") return (v || []).map(function (e) { return ENCHANT_LABELS[e.enchant] + " " + e.level; }).join(", ") || "aucun";
     if (f.type === "multiselect") return (v || []).map(function (x) { return f.labels && f.labels[x] ? f.labels[x] : x; }).join(", ");
     if (f.type === "teamcolors") return Object.keys(v || {}).length + " camp(s) coloré(s)";

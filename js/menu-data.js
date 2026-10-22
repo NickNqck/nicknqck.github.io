@@ -25,28 +25,33 @@ const CLICK_MODES_B = ["RIGHT_ONLY", "DIFFERENT"];
 // inBlocks : réglage modifié uniquement par l'éditeur à blocs (js/blocks.js), jamais affiché comme champ de formulaire,
 // mais toujours validé, enregistré, exporté et importé comme avant
 function clickFields(prefix, modes) {
-  return clickFieldsRaw(prefix, modes).map(function (f) { return Object.assign(f, { inBlocks: true }); });
+  return clickFieldsRaw(prefix, { kind: "ITEM", clickMode: modes }, false).map(function (f) { return Object.assign(f, { inBlocks: true }); });
 }
-function clickFieldsRaw(prefix, modes) {
-  const when = { kind: "ITEM", clickMode: modes };
+// Groupe "c" : « en frappant un joueur » (la cible est le joueur frappé : pas de visée, ni projectile, ni zone)
+function hitFields() {
+  return clickFieldsRaw("c", { kind: "ITEM", onHit: true }, true).map(function (f) { return Object.assign(f, { inBlocks: true, optional: true }); });
+}
+function clickFieldsRaw(prefix, when, hit) {
   const act = function (actions, extra) { return Object.assign({}, when, { [prefix + "Action"]: actions }, extra || {}); };
+  const notHit = function (f) { return hit ? null : f; };
   return [
     { type: "select", id: prefix + "Action", label: "Action du clic", default: "EFFECT_ONLY",
-      options: ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER", "LAUNCH", "AREA"],
+      options: hit ? ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER"] : ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER", "LAUNCH", "AREA"],
       labels: { EFFECT_ONLY: "Donner des effets (sans téléportation)",
                 TP_BEHIND: "Se téléporter derrière le joueur visé",
                 TP_AROUND: "Se téléporter autour du joueur visé",
                 TP_TO_USER: "Téléporter le joueur visé jusqu'à soi",
                 LAUNCH: "Lancer un projectile (conséquences à l'impact)",
                 AREA: "Toucher tous les joueurs autour de moi (zone)" }, showIf: when },
-    { type: "toggle", id: prefix + "Aim", label: "En visant un joueur", default: false, showIf: act(["EFFECT_ONLY"]) },
-    { type: "number", id: prefix + "Distance", label: "Distance maximale de visée (blocs)", default: 30, min: 1, max: 100, step: 1,
-      showIf: act(["EFFECT_ONLY"], { [prefix + "Aim"]: true }) },
-    { type: "number", id: prefix + "TpDistance", label: "Distance maximale de visée (blocs)", default: 30, min: 1, max: 100, step: 1,
-      showIf: act(["TP_BEHIND", "TP_AROUND", "TP_TO_USER"]) },
+    notHit({ type: "toggle", id: prefix + "Aim", label: "En visant un joueur", default: false, showIf: act(["EFFECT_ONLY"]) }),
+    notHit({ type: "number", id: prefix + "Distance", label: "Distance maximale de visée (blocs)", default: 30, min: 1, max: 100, step: 1,
+      showIf: act(["EFFECT_ONLY"], { [prefix + "Aim"]: true }) }),
+    notHit({ type: "number", id: prefix + "TpDistance", label: "Distance maximale de visée (blocs)", default: 30, min: 1, max: 100, step: 1,
+      showIf: act(["TP_BEHIND", "TP_AROUND", "TP_TO_USER"]) }),
     { type: "number", id: prefix + "Radius", label: "Distance autour de la cible (blocs)", default: 5, min: 1, max: 30, step: 1,
       showIf: act(["TP_AROUND"]) },
 
+  ].concat(hit ? [] : [
     // Projectile : à l'impact (atterrissage ou joueur touché), téléportation de l'utilisateur et/ou zone de dégâts
     { type: "select", id: prefix + "Projectile", label: "Projectile lancé", default: "ARROW",
       options: ["ARROW", "SNOWBALL"], labels: { ARROW: "Flèche", SNOWBALL: "Boule de neige" }, showIf: act(["LAUNCH"]) },
@@ -75,21 +80,26 @@ function clickFieldsRaw(prefix, modes) {
 
     // la zone est dessinée en particules visibles par les joueurs, à sa création puis tant qu'elle est active
     { type: "color", id: prefix + "ZoneColor", label: "Couleur de la zone (cercle de particules)", default: "c",
-      showIf: act(["LAUNCH"], { [prefix + "Zone"]: true }) },
+      showIf: act(["LAUNCH"], { [prefix + "Zone"]: true }) }
+  ], [
 
     { type: "effectlist", id: prefix + "Effects", label: "Effets de potion (facultatifs ; avec un projectile : donnés à l'utilisateur à l'impact)", default: [], max: 5,
       allowTarget: function (rec) {
         const action = rec[prefix + "Action"];
-        return action === "EFFECT_ONLY" ? rec[prefix + "Aim"] === true : action !== "LAUNCH";
+        return hit || (action === "EFFECT_ONLY" ? rec[prefix + "Aim"] === true : action !== "LAUNCH");
       },
       targetLabel: function (rec) { return rec[prefix + "Action"] === "AREA" ? "aux joueurs touchés" : "à la cible"; },
       showIf: when },
 
-    // Cooldown propre à ce clic (seulement quand chaque clic fait une action différente) : chaque clic a son compte à rebours
+    // Actions sur le joueur visé / frappé (catégorie « Cible ») : [{ type, amount, flag }]
+    { type: "targetlist", id: prefix + "Target", label: "Actions sur la cible", default: [], optional: true,
+      showIf: hit ? when : act(["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER"]) },
+
+    // Cooldown propre à ce clic (quand chaque clic fait une action différente, ou pour la frappe) : chaque clic a son compte à rebours
     { type: "number", id: prefix + "Cooldown", label: "Cooldown de ce clic (secondes, 0 = aucun)", default: 0, min: 0, max: 3600, step: 1, optional: true,
-      showIf: { kind: "ITEM", clickMode: "DIFFERENT" },
+      showIf: hit ? when : { kind: "ITEM", clickMode: "DIFFERENT" },
       note: "Se cumule avec le cooldown commun (plus bas) : mets-le à 0 si seuls les cooldowns de chaque clic comptent." }
-  ];
+  ]).filter(Boolean);
 }
 
 const MENU = {
@@ -165,11 +175,13 @@ const MENU = {
               return "";
             }
             if (p.kind !== "ITEM") return "";
+            if (p.clickMode === "NONE" && !p.onHit) return "L'objet ne fait rien : ajoute un « si » avec un capteur (clic ou frapper un joueur).";
             const groups = [];
             if (CLICK_MODES_A.indexOf(p.clickMode) !== -1) groups.push(["a", "clic gauche"]);
             if (CLICK_MODES_B.indexOf(p.clickMode) !== -1) groups.push(["b", "clic droit"]);
+            if (p.onHit) groups.push(["c", "frapper un joueur"]);
             for (let i = 0; i < groups.length; i++) {
-              const g = groups[i][0], effects = (p[g + "Effects"] || []).length;
+              const g = groups[i][0], effects = (p[g + "Effects"] || []).length + (p[g + "Target"] || []).length;
               if (p[g + "Action"] === "EFFECT_ONLY" && !effects)
                 return "Le « si " + groups[i][1] + " » ne fait rien : ajoute-lui au moins un bloc (effet, téléportation, projectile ou zone).";
               if (p[g + "Action"] === "AREA" && !(p[g + "AreaDamage"] > 0) && !(p[g + "AreaUp"] > 0) && !effects)
@@ -247,11 +259,14 @@ const MENU = {
             { type: "toggle", id: "itemUnbreakable", label: "Objet incassable", default: false, optional: true, inBlocks: true, showIf: { kind: "ITEM" } },
             { type: "select", id: "clickMode", label: "Clic(s) qui activent l'objet", default: "RIGHT_ONLY", inBlocks: true,
               invalidMessage: "Chaque bloc « si » doit contenir son capteur (catégorie Capteurs) : un clic pour les « si » du programme, « viser un joueur » pour un « si » placé dans un clic. Il faut au moins un « si ».",
-              options: ["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT"],
+              options: ["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT", "NONE"],
               labels: { LEFT_ONLY: "Clic gauche uniquement", RIGHT_ONLY: "Clic droit uniquement",
-                        BOTH_SAME: "Les deux clics font la même chose", DIFFERENT: "Chaque clic fait une action différente" },
-              showIf: { kind: "ITEM" } }
-          ].concat(clickFields("a", CLICK_MODES_A), clickFields("b", CLICK_MODES_B), [
+                        BOTH_SAME: "Les deux clics font la même chose", DIFFERENT: "Chaque clic fait une action différente",
+                        NONE: "Aucun clic (seulement en frappant un joueur)" },
+              showIf: { kind: "ITEM" } },
+            // « si frapper un joueur » : l'objet agit quand on frappe un joueur avec (groupe de champs "c")
+            { type: "toggle", id: "onHit", label: "En frappant un joueur", default: false, optional: true, inBlocks: true, showIf: { kind: "ITEM" } }
+          ].concat(clickFields("a", CLICK_MODES_A), clickFields("b", CLICK_MODES_B), hitFields(), [
 
             // --- Communs à tous les types ---
             { type: "number", id: "cooldown", label: "Cooldown du pouvoir (secondes, 0 = aucun)", default: 0, min: 0, max: 3600, step: 1, inBlocks: true },

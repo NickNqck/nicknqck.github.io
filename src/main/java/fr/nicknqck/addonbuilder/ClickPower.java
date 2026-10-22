@@ -27,6 +27,8 @@ final class ClickPower extends Power {
 
     @Override
     public boolean onUse(Player player, Map<String, Object> map) {
-        return ItemPowerSupport.perform(this.item, this, this.action, player);
+        // pour la frappe : le joueur frappé vient de l'évènement (UHCPlayerBattleEvent) transmis dans map
+        Player victim = ItemPowerSupport.victimOf(map);
+        return ItemPowerSupport.perform(this.item, this, this.action, player, victim);
     }
 }
