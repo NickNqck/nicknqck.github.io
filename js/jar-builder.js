@@ -125,7 +125,7 @@ const JarBuilder = (function () {
     const commandArgs = Object.create(null); // "commande arg" déjà pris dans ce rôle
     if ((role.powers || []).length > 10) throw new Error("Plus de 10 pouvoirs pour le rôle " + role.constant);
     return (role.powers || []).map(function (p) {
-      if (["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "NO_ARMOR", "ITEM", "COMMAND_EFFECTS"].indexOf(p.kind) === -1) throw new Error("Type de pouvoir inconnu : " + p.kind);
+      if (["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "NO_ARMOR", "ITEM", "COMMAND_EFFECTS", "COMMAND_RULES"].indexOf(p.kind) === -1) throw new Error("Type de pouvoir inconnu : " + p.kind);
       const blocker = ["BLOCK_EFFECT", "BLOCK_POWER", "INFO"].indexOf(p.kind) !== -1;
       if (blocker && (!Number.isInteger(p.radius) || p.radius < 1 || p.radius > 100)) throw new Error("Rayon invalide pour le pouvoir " + stripMc(p.title));
       let param = "";
@@ -173,13 +173,21 @@ const JarBuilder = (function () {
       // Commande : /commande <argument> active le pouvoir (effets maintenus ou limités dans le temps), la même commande le désactive.
       // param = "EFFET:ticks:amplificateur+..." (ticks 0 = tant que le pouvoir est activé)
       let command = "", arg = "", autoLine = null;
-      if (p.kind === "COMMAND_EFFECTS") {
+      if (p.kind === "COMMAND_EFFECTS" || p.kind === "COMMAND_RULES") {
         const title = stripMc(p.title);
         const known = (settings.commands || []).some(function (c) { return c && c.name === p.command; });
         if (typeof p.command !== "string" || !/^[a-z][a-z0-9_]{0,15}$/.test(p.command) || !known) throw new Error("Commande inconnue pour le pouvoir " + title);
         if (typeof p.arg !== "string" || !/^[a-z][a-z0-9_]{0,19}$/.test(p.arg) || RESERVED_ARGS.indexOf(p.arg) !== -1) throw new Error("Argument de commande invalide pour le pouvoir " + title);
         if (commandArgs[p.command + " " + p.arg]) throw new Error("Deux pouvoirs du rôle " + role.constant + " utilisent /" + p.command + " " + p.arg);
         commandArgs[p.command + " " + p.arg] = true;
+        command = p.command; arg = p.arg;
+      }
+      if (p.kind === "COMMAND_RULES") { // la commande lance les règles « quand j'utilise ce pouvoir » (voir CommandRulesPower)
+        const named = (p.rules || []).some(function (r) { return r.on === "USE" && r.p && r.p.target === "ARG"; });
+        autoLine = "\u00a77Commande : \u00a7a/" + command + " " + arg + (named ? " <joueur>" : "");
+      }
+      if (p.kind === "COMMAND_EFFECTS") {
+        const title = stripMc(p.title);
         const list = p.cmdEffects;
         if (!Array.isArray(list) || !list.length || list.length > MAX_COMMAND_EFFECTS) throw new Error("Effets invalides pour le pouvoir " + title);
         param = list.map(function (e) {
@@ -188,7 +196,6 @@ const JarBuilder = (function () {
           if (!Number.isInteger(e.seconds) || e.seconds < 0 || e.seconds > 1600) throw new Error("Durée invalide pour le pouvoir " + title);
           return e.effect + ":" + (e.seconds * 20) + ":" + (e.level - 1);
         }).join("+");
-        command = p.command; arg = p.arg;
         autoLine = "\u00a77Commande : \u00a7a/" + command + " " + arg + "\u00a77 (l'activer, puis la retaper pour la d\u00e9sactiver)";
       }
 
@@ -201,7 +208,8 @@ const JarBuilder = (function () {
         if (typeof p.powerItem !== "string" || !/^[A-Z0-9_]{2,40}$/.test(p.powerItem)) throw new Error("Objet invalide pour le pouvoir " + title);
         if (["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT", "NONE"].indexOf(p.clickMode) === -1) throw new Error("Clic invalide pour le pouvoir " + title);
         const onHit = p.onHit === true;
-        if (p.clickMode === "NONE" && !onHit) throw new Error("Le pouvoir " + title + " n'a ni clic ni frappe.");
+        const uses = (p.rules || []).some(function (r) { return r.on === "USE" || (r.on === "HIT_GIVEN" && r.p && r.p.with === "ITEM"); });
+        if (p.clickMode === "NONE" && !onHit && !uses) throw new Error("Le pouvoir " + title + " n'a ni clic, ni frappe, ni règle « quand j'utilise ce pouvoir ».");
         const TYPES = ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER", "LAUNCH", "AREA"];
         // action = "TYPE,distanceDeVisée,distanceAutour,effets,projectile" ; effets = "U|T:EFFET:ticks:amplificateur" séparés par "+" ;
         // projectile (LAUNCH seulement) = "PROJECTILE;tp;zone;rayon;dégâtsEnDemiCœurs;secondes;couleurHex"
@@ -326,10 +334,11 @@ const JarBuilder = (function () {
             .concat((settings.roles || []).map(function (x) { return "addon:" + constName(x.name); })),
           teams: MEETUP_TEAMS.map(function (x) { return "meetup:" + x.id; })
             .concat((settings.teams || []).map(function (x) { return "addon:" + constName(x.name); })),
-          potions: POTION_LABELS, mcText: MC_OK, isItem: p.kind === "ITEM" });
+          potions: POTION_LABELS, mcText: MC_OK, isItem: p.kind === "ITEM", kind: p.kind });
         if (res.error) throw new Error("Règles du pouvoir " + stripMc(p.title) + " : " + res.error);
         if (res.rules.length) rules = JSON.stringify(res.rules);
       }
+      if (p.kind === "COMMAND_RULES" && rules.indexOf('"on":"USE"') === -1) throw new Error("Le pouvoir " + stripMc(p.title) + " n'a pas de règle « quand j'utilise ce pouvoir ».");
       const id = constName(stripMc(p.title));
       if (!/^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(id)) throw new Error("Nom de pouvoir inutilisable : " + stripMc(p.title));
       if (seen[id]) throw new Error("Deux pouvoirs donneraient la même classe : " + id);

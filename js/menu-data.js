@@ -174,8 +174,15 @@ const MENU = {
               if (RESERVED_ARGS.indexOf(p.arg) !== -1) return "L'argument « " + p.arg + " » est déjà pris (/commande me et /commande roles existent déjà).";
               return "";
             }
+            const uses = (p.rules || []).some(function (r) { return r.on === "USE"; });
+            const itemRules = uses || (p.rules || []).some(function (r) { return r.on === "HIT_GIVEN" && r.p && r.p.with === "ITEM"; });
+            if (p.kind === "COMMAND_RULES") {
+              if (!uses) return "Sans bloc « donner un effet », la commande lance les règles « quand j'utilise ce pouvoir » : ajoute-en une (catégorie Règles).";
+              if (RESERVED_ARGS.indexOf(p.arg) !== -1) return "L'argument « " + p.arg + " » est déjà pris (/commande me et /commande roles existent déjà).";
+              return "";
+            }
             if (p.kind !== "ITEM") return "";
-            if (p.clickMode === "NONE" && !p.onHit) return "L'objet ne fait rien : ajoute un « si » avec un capteur (clic ou frapper un joueur).";
+            if (p.clickMode === "NONE" && !p.onHit && !itemRules) return "L'objet ne fait rien : ajoute un « si » avec un capteur (clic ou frapper un joueur), ou une règle « quand j'utilise ce pouvoir ».";
             const groups = [];
             if (CLICK_MODES_A.indexOf(p.clickMode) !== -1) groups.push(["a", "clic gauche"]);
             if (CLICK_MODES_B.indexOf(p.clickMode) !== -1) groups.push(["b", "clic droit"]);
@@ -193,22 +200,24 @@ const MENU = {
           },
           // Deux pouvoirs d'un même rôle ne peuvent pas partager la même commande + le même argument
           crossCheck: function (p, others) {
-            if (p.kind !== "COMMAND_EFFECTS") return "";
-            const same = others.some(function (o) { return o.kind === "COMMAND_EFFECTS" && o.command === p.command && o.arg === p.arg; });
+            const isCmd = function (x) { return x.kind === "COMMAND_EFFECTS" || x.kind === "COMMAND_RULES"; };
+            if (!isCmd(p)) return "";
+            const same = others.some(function (o) { return isCmd(o) && o.command === p.command && o.arg === p.arg; });
             return same ? "Un autre pouvoir de ce rôle utilise déjà /" + p.command + " " + p.arg + "." : "";
           },
           fields: [
             // Le type n'est plus choisi dans une liste : il vient du bloc de départ et du comportement passif du programme
             { type: "select", id: "kind", label: "Type de pouvoir", default: "", inBlocks: true,
               invalidMessage: "Le programme doit commencer par un bloc de départ (catégorie Événements) : quand le joueur utilise un objet, tape une commande, ou en permanence.",
-              options: ["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "NO_ARMOR", "ITEM", "COMMAND_EFFECTS"],
+              options: ["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "NO_ARMOR", "ITEM", "COMMAND_EFFECTS", "COMMAND_RULES"],
               labels: { PASSIVE: "Passif simple (description seule)",
                         BLOCK_EFFECT: "Passif : empêche les joueurs proches d'obtenir des effets",
                         BLOCK_POWER: "Passif : empêche les joueurs proches d'utiliser un pouvoir",
                         INFO: "Passif : révèle le camp des joueurs restés à proximité",
                         NO_ARMOR: "Passif : bonus quand le joueur ne porte aucune armure",
                         ITEM: "Objet à activer au clic",
-                        COMMAND_EFFECTS: "Commande : active / désactive des effets" } },
+                        COMMAND_EFFECTS: "Commande : active / désactive des effets",
+                        COMMAND_RULES: "Commande : lance les règles « quand j'utilise ce pouvoir »" } },
             { type: "mctext", id: "title", label: "Nom du pouvoir", default: "", max: 40, hint: "ex. &bMon pouvoir" },
             // autoDescribe : bouton « Générer automatiquement » (js/describe.js), à partir du programme en blocs
             { type: "textarea", id: "description", label: "Description (facultative)", default: "", max: 400, autoDescribe: true,
@@ -239,11 +248,11 @@ const MENU = {
               showIf: { kind: "NO_ARMOR" } },
 
             // --- Commande : /commande <argument> active le pouvoir, la même commande le désactive ---
-            { type: "mycommand", id: "command", label: "Commande", default: "", inBlocks: true, showIf: { kind: "COMMAND_EFFECTS" },
+            { type: "mycommand", id: "command", label: "Commande", default: "", inBlocks: true, showIf: { kind: ["COMMAND_EFFECTS", "COMMAND_RULES"] },
               invalidMessage: "Choisis une commande dans « quand le joueur tape … » (crée-la d'abord dans le menu Commandes de l'addon)." },
             { type: "text", id: "arg", label: "Argument (/commande <argument>)", default: "", max: 20, pattern: ARG_PATTERN, inBlocks: true,
               invalidMessage: "Argument invalide dans « quand le joueur tape … » : 1 à 20 caractères, minuscules, chiffres et _, en commençant par une lettre.",
-              showIf: { kind: "COMMAND_EFFECTS" } },
+              showIf: { kind: ["COMMAND_EFFECTS", "COMMAND_RULES"] } },
             // durée 0 = l'effet reste tant que le pouvoir est activé ; sinon il dure ce nombre de secondes après l'activation
             { type: "effectlist", id: "cmdEffects", label: "Effets (donnés au joueur qui active le pouvoir)", default: [], max: MAX_COMMAND_EFFECTS,
               minSeconds: 0, hideWho: true, allowTarget: function () { return false; }, inBlocks: true,
@@ -261,7 +270,7 @@ const MENU = {
             // plus de bloc : UHC-Meetup rend déjà incassable tout objet de pouvoir (ItemPower) ; gardé pour relire les anciens .json
             { type: "toggle", id: "itemUnbreakable", label: "Objet incassable", default: false, optional: true, inBlocks: true, showIf: { kind: "ITEM" } },
             { type: "select", id: "clickMode", label: "Clic(s) qui activent l'objet", default: "RIGHT_ONLY", inBlocks: true,
-              invalidMessage: "Chaque bloc « si » doit contenir son capteur (catégorie Capteurs) : un clic pour les « si » du programme, « viser un joueur » pour un « si » placé dans un clic. Il faut au moins un « si ».",
+              invalidMessage: "Chaque bloc « si » doit contenir son capteur (catégorie Capteurs) : un clic pour les « si » du programme, « viser un joueur » pour un « si » placé dans un clic. Il faut au moins un « si », ou une règle « quand j'utilise ce pouvoir ».",
               options: ["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT", "NONE"],
               labels: { LEFT_ONLY: "Clic gauche uniquement", RIGHT_ONLY: "Clic droit uniquement",
                         BOTH_SAME: "Les deux clics font la même chose", DIFFERENT: "Chaque clic fait une action différente",

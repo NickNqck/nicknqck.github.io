@@ -145,12 +145,13 @@ const JavaGen = (function () {
    */
   function powerClass(spec) {
     const name = simple(spec.className);
-    const ITEM = spec.kind === "ITEM", COMMAND = spec.kind === "COMMAND_EFFECTS";
+    const ITEM = spec.kind === "ITEM", COMMAND = spec.kind === "COMMAND_EFFECTS" || spec.kind === "COMMAND_RULES";
+    const CMD_CLASS = spec.kind === "COMMAND_RULES" ? "CommandRulesPower" : "CommandEffectsPower";
     const imports = ["fr.nicknqck.roles.builder.RoleBase"];
     if (spec.cooldown > 0) imports.push("fr.nicknqck.utils.powers.Cooldown");
     let parent;
     if (ITEM) { parent = "ItemPower"; imports.push("fr.nicknqck.utils.powers.ItemPower", PKG + ".RoleSupport"); }
-    else if (COMMAND) { parent = "CommandEffectsPower"; imports.push(PKG + ".CommandEffectsPower"); }
+    else if (COMMAND) { parent = CMD_CLASS; imports.push(PKG + "." + CMD_CLASS); }
     else { parent = "Power"; imports.push("fr.nicknqck.utils.powers.Power"); }
     if (!ITEM && ((!COMMAND && spec.kind && spec.kind !== "PASSIVE") || spec.rules)) imports.push(PKG + ".RoleSupport");
     if (!COMMAND) imports.push("org.bukkit.entity.Player", "java.util.Map");
@@ -180,7 +181,9 @@ const JavaGen = (function () {
     let onUse = "";
     if (ITEM) onUse = "\n    @Override\n    public boolean onUse(Player player, Map<String, Object> map) {\n        return RoleSupport.itemUse(this, player, map);\n    }\n";
     else if (!COMMAND) onUse = "\n    @Override\n    public boolean onUse(Player player, Map<String, Object> map) {\n        return true;\n    }\n";
-    const comment = COMMAND ? "/** /" + spec.command + " " + spec.arg + " : active / désactive des effets (voir CommandEffectsPower). */\n"
+    const comment = COMMAND ? "/** /" + spec.command + " " + spec.arg + (spec.kind === "COMMAND_RULES"
+        ? " : lance les règles « quand j'utilise ce pouvoir » (voir CommandRulesPower). */\n"
+        : " : active / désactive des effets (voir CommandEffectsPower). */\n")
       : ITEM ? "/** Objet à activer au clic (voir ItemPowerSupport). */\n"
       : spec.kind && spec.kind !== "PASSIVE" ? "/** Passif " + spec.kind + " (voir RoleSupport.passive). */\n" : "/** Passif : description seule. */\n";
     return header(PKG + ".powers", imports) + GENERATED + comment +

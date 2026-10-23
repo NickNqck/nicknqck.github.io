@@ -11,7 +11,8 @@
  *   quand le joueur utilise <objet>     -> pouvoir d'objet (kind ITEM), programme ci-dessous ; juste sous le départ,
  *                                          l'apparence de l'objet (catégorie Objet : brillant, enchanté ; UHC-Meetup le rend
  *                                          déjà incassable)
- *   quand le joueur tape /<cmd> <arg>   -> pouvoir de commande (COMMAND_EFFECTS) : des blocs « donner un effet »
+ *   quand le joueur tape /<cmd> <arg>   -> pouvoir de commande (COMMAND_EFFECTS) : des blocs « donner un effet » ;
+ *                                          sans effet : COMMAND_RULES (la commande lance les règles « quand j'utilise ce pouvoir »)
  *   en permanence (passif)              -> passif : un seul comportement (catégorie Passifs), ou aucun (PASSIVE)
  *   + sous n'importe quel départ : « cooldown du pouvoir », « utilisable N fois maximum »
  *   + sous le programme, des règles « quand … » (rules-data.js, champ "rules" enregistré tel quel) : quand je tue,
@@ -228,7 +229,7 @@ const BlockEditor = (function () {
       if (p.itemGlint) prog.look.push({ t: "itemGlint" });
       (p.itemEnchants || []).forEach(function (e) { prog.look.push({ t: "itemEnchant", enchant: e.enchant, level: e.level }); });
       if (p.itemHideEnchants) prog.look.push({ t: "itemHide" });
-    } else if (k === "COMMAND_EFFECTS") {
+    } else if (k === "COMMAND_EFFECTS" || k === "COMMAND_RULES") {
       prog.event = { t: "evCommand", command: p.command || "", arg: p.arg || "" };
       prog.body = (p.cmdEffects || []).map(function (e) { return effectOf(e, "USER"); });
     } else if (PASSIVE_KINDS.indexOf(k) !== -1) {
@@ -323,7 +324,9 @@ const BlockEditor = (function () {
     const L = find("LEFT"), R = find("RIGHT"), A = find("ANY"), H = find("HIT");
     // un « si » sans capteur (du programme ou imbriqué) rend le pouvoir invalide (clickMode vide) : la validation explique
     const incomplete = prog.branches.some(function (b) { const n = nestedOf(b); return !b.click || (n && !n.cond); });
-    p.clickMode = incomplete ? "" : A ? "BOTH_SAME" : L && R ? "DIFFERENT" : L ? "LEFT_ONLY" : R ? "RIGHT_ONLY" : H ? "NONE" : "";
+    // sans clic ni frappe, l'objet peut ne servir qu'aux règles « quand j'utilise ce pouvoir »
+    const uses = (prog.rules || []).some(function (r) { return r.on === "USE" || (r.on === "HIT_GIVEN" && r.p && r.p.with === "ITEM"); });
+    p.clickMode = incomplete ? "" : A ? "BOTH_SAME" : L && R ? "DIFFERENT" : L ? "LEFT_ONLY" : R ? "RIGHT_ONLY" : H || uses ? "NONE" : "";
     p.onHit = !!H;
     writeBranch(p, "a", A || L, dflt);
     writeBranch(p, "b", R, dflt);
@@ -349,7 +352,8 @@ const BlockEditor = (function () {
         if (x.t === "itemHide") p.itemHideEnchants = true;
       });
     } else if (ev && ev.t === "evCommand") {
-      p.kind = "COMMAND_EFFECTS";
+      // sans « donner un effet », la commande lance les règles « quand j'utilise ce pouvoir »
+      p.kind = prog.body.some(function (x) { return x.t === "effect"; }) ? "COMMAND_EFFECTS" : "COMMAND_RULES";
       p.command = ev.command;
       p.arg = ev.arg;
       p.cmdEffects = prog.body.filter(function (x) { return x.t === "effect"; }).map(function (x) { return effectData(x, "USER"); });
@@ -791,7 +795,7 @@ const BlockEditor = (function () {
     /** Ajoute (ou déplace, si from est donné) un bloc ; retourne false avec un message si c'est impossible. */
     const EVENT_HELP = {
       evItem: "Un « si clic droit » est prêt : glisse-lui des blocs (ou change son capteur, ou ajoute un autre « si »).",
-      evCommand: "Ajoute les effets que la commande active ou désactive (catégorie Effets).",
+      evCommand: "Ajoute les effets que la commande active ou désactive (catégorie Effets), ou une règle « quand j'utilise ce pouvoir » (catégorie Règles).",
       evPassive: "Ajoute un comportement (catégorie Passifs), ou laisse vide pour un passif décrit seulement par sa description."
     };
     // valeur pas encore prise dans le bloc parent (effet empêché, camp coloré)
@@ -975,7 +979,7 @@ const BlockEditor = (function () {
       }
       return list;
     }
-    const subjectOf = function (rule) { const s = rule && RULES.TRIGGERS[rule.on]; return s ? s.subject : null; };
+    const subjectOf = function (rule) { return rule ? RULES.subjectOf(rule.on, rule.p) : null; };
     const countNodes = function (list) {
       return (list || []).reduce(function (n, x) {
         return n + 1 + (RULES.ACTIONS[x.a] && RULES.ACTIONS[x.a].container || []).reduce(function (m, s) { return m + countNodes(x[s]); }, 0);
@@ -1109,7 +1113,9 @@ const BlockEditor = (function () {
             options = options.filter(function (o) { return o[0] !== "SUBJECT" || subject || p[key] === "SUBJECT"; })
               .map(function (o) { return o[0] !== "SUBJECT" ? o : [o[0], subject ? (key === "who" ? subject + " a" : subject) : o[1] + " (aucun ici)"]; });
           }
-          return ruleSelect(p, key, options, key === "to");
+          // redessine quand ce choix affiche / cache un autre champ (rayon, rôle, distance, camp)
+          const shows = Object.keys(spec.params).some(function (k) { return spec.params[k].showIf && spec.params[k].showIf[key]; });
+          return ruleSelect(p, key, options, shows || key === "to" || key === "target");
         }
         case "role": return keyChoice(p, key, opts.roles || [], "rôle");
         case "team": return keyChoice(p, key, opts.allTeams || [], "camp");
@@ -1133,14 +1139,18 @@ const BlockEditor = (function () {
     }
     // libellé du bloc avec ses champs à la place des {paramètres} ; rayon / rôle juste après « {to} » quand ils servent
     function ruleLabel(line, spec, p, rule) {
+      const params = spec.params || {};
       spec.label.split(/(\{\w+\})/).forEach(function (part) {
         const m = /^\{(\w+)\}$/.exec(part);
         if (!m) { if (part.trim()) line.appendChild(t(part.trim())); return; }
+        if (!RULES.visible(params[m[1]], p)) return;
         line.appendChild(ruleField(spec, p, m[1], rule));
-        if (m[1] === "to") {
-          if (RULES.visible(spec.params.r, p)) { line.appendChild(t("dans un rayon de")); line.appendChild(ruleField(spec, p, "r", rule)); line.appendChild(t("blocs")); }
-          if (RULES.visible(spec.params.role, p)) line.appendChild(ruleField(spec, p, "role", rule));
-        }
+        // paramètres « à la suite » (rayon après « les joueurs autour », distance après « en visant un joueur »...)
+        Object.keys(params).filter(function (k) { return params[k].after === m[1] && RULES.visible(params[k], p); }).forEach(function (k) {
+          if (params[k].prefix) line.appendChild(t(params[k].prefix));
+          line.appendChild(ruleField(spec, p, k, rule));
+          if (params[k].suffix) line.appendChild(t(params[k].suffix));
+        });
       });
     }
     function ruleList(list, path, rule, empty, extraCls) {
@@ -1210,7 +1220,7 @@ const BlockEditor = (function () {
       const cd = el("div", "bk-line bk-otherline");
       cd.appendChild(t("cooldown de la règle :")); cd.appendChild(num(rule, "cd", 0, 3600, 1)); cd.appendChild(t("s (0 = aucun)"));
       hat.appendChild(cd);
-      if (spec.subject) hat.appendChild(el("div", "bk-note", "Dans cette règle, « le joueur concerné » = " + spec.subject + "."));
+      if (subjectOf(rule)) hat.appendChild(el("div", "bk-note", "Dans cette règle, « le joueur concerné » = " + subjectOf(rule) + "."));
       hat.appendChild(ruleList(rule.do, [r, "do"], rule, "glisse ici les actions de la règle"));
       hat.appendChild(el("div", "bk-foot"));
       return hat;
@@ -1663,7 +1673,7 @@ const BlockEditor = (function () {
       });
       const end = el("div", "bk-slot bk-rootslot", !ev ? "glisse d'abord un bloc de départ dans l'emplacement ci-dessus"
         : ev === "evItem" ? (prog.branches.length ? "+ « si »" : "glisse ici un bloc « si » (catégorie Contrôle), puis un capteur de clic dans son emplacement ⬡")
-        : ev === "evCommand" ? (prog.body.length ? "+" : "glisse ici « donner un effet » (catégorie Effets) : la commande active / désactive ces effets")
+        : ev === "evCommand" ? (prog.body.length ? "+" : "glisse ici « donner un effet » (catégorie Effets) : la commande active / désactive ces effets ; ou, sans effet, elle lance les règles « quand j'utilise ce pouvoir »")
         : (prog.body.length ? "+" : "glisse ici un comportement (catégorie Passifs), ou laisse vide : passif décrit seulement par sa description"));
       dropZone(end, ev ? "root" : { event: true });
       end.dataset.zone = "root";

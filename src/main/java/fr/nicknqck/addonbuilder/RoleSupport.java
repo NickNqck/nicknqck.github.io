@@ -242,7 +242,17 @@ public final class RoleSupport {
 
     /** Appelée par onUse d'un pouvoir objet : true si l'action a réussi. */
     public static boolean itemUse(ItemPower power, Player player, Map<String, Object> map) {
-        return ItemPowerSupport.use(power, player, map);
+        boolean done = ItemPowerSupport.use(power, player, map);
+        // règles « quand j'utilise ce pouvoir » : un clic (pas une frappe) avec l'objet
+        Object event = map.get("event");
+        ItemPower.InteractType type = power.getInteractType();
+        if (type != null && "INTERACT".equals(type.name()) && event instanceof org.bukkit.event.player.PlayerInteractEvent) {
+            String click = ((org.bukkit.event.player.PlayerInteractEvent) event).getAction().name();
+            if (!"PHYSICAL".equals(click) && RuleEngine.hasUse(power)) {
+                done |= RuleEngine.use(power, player, click.contains("LEFT") ? "LEFT" : "RIGHT", null);
+            }
+        }
+        return done;
     }
 
     /**

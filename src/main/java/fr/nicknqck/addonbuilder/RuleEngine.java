@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.WeakHashMap;
 
 /**
  * Règles des pouvoirs générés par le site (blocs « quand … » : voir js/rules-data.js) : « quand <déclencheur> »,
@@ -55,6 +56,8 @@ public final class RuleEngine implements Listener {
     private static final Map<UUID, Long> BLOCKED = new HashMap<>();
     /** Insensibilités en cours : joueur -> (type -> jusqu'à ms, Long.MAX_VALUE = toujours). */
     private static final Map<UUID, Map<String, Long>> IMMUNE = new HashMap<>();
+    /** Moteur de chaque pouvoir (pour « quand j'utilise ce pouvoir » : clic sur l'objet ou commande). */
+    private static final Map<Power, RuleEngine> ENGINES = new WeakHashMap<>();
 
     private final Power power;
     private final List<Map<String, Object>> rules = new ArrayList<>();
@@ -104,6 +107,7 @@ public final class RuleEngine implements Listener {
             Bukkit.getLogger().severe("[UHC-Addon] Règles illisibles pour " + power.getName() + " : " + e);
             return;
         }
+        ENGINES.put(power, engine);
         RoleSupport.registerListener(engine);
         new BukkitRunnable() {
             private boolean started;
@@ -213,6 +217,78 @@ public final class RuleEngine implements Listener {
         if (until != null && System.currentTimeMillis() <= until) event.setCancelled(true);
     }
 
+    /**
+     * « Quand j'utilise ce pouvoir » : clic avec l'objet (click = LEFT / RIGHT) ou commande tapée (click = null, args = mots
+     * de la commande). Le joueur concerné est le joueur visé (cible AIM) ou nommé dans la commande (cible ARG).
+     * Retourne true si au moins une règle s'est lancée : le cooldown du pouvoir n'est compté que dans ce cas.
+     */
+    static boolean use(Power power, Player player, String click, String[] args) {
+        return use(power, player, click, args, null);
+    }
+
+    /** usage = commande complète pour le message d'erreur (ex. "/zelda verif"), ou null. */
+    static boolean use(Power power, Player player, String click, String[] args, String usage) {
+        RuleEngine engine = ENGINES.get(power);
+        return engine != null && engine.use(player, click, args, usage);
+    }
+
+    /** Ce pouvoir a-t-il au moins une règle « quand j'utilise ce pouvoir » ? */
+    static boolean hasUse(Power power) {
+        RuleEngine engine = ENGINES.get(power);
+        if (engine == null) return false;
+        for (Map<String, Object> rule : engine.rules) if ("USE".equals(rule.get("on"))) return true;
+        return false;
+    }
+
+    private boolean use(Player player, String click, String[] args, String usage) {
+        boolean ran = false;
+        long wait = Long.MAX_VALUE;
+        String problem = null;
+        for (int i = 0; i < rules.size(); i++) {
+            Map<String, Object> rule = rules.get(i);
+            if (!"USE".equals(rule.get("on"))) continue;
+            Map<String, Object> p = params(rule);
+            String side = str(p, "click");
+            if (click != null && !"ANY".equals(side) && !side.equals(click)) continue;
+            long now = System.currentTimeMillis();
+            if (now < nextUse[i]) {
+                wait = Math.min(wait, nextUse[i] - now);
+                continue;
+            }
+            Player subject = null;
+            String target = str(p, "target");
+            if ("AIM".equals(target)) {
+                power.setTargetDistance(Math.max(1, num(p, "d")));
+                subject = power.getTarget();
+                if (subject == null) {
+                    problem = "\u00a7cIl faut viser un joueur \u00e0 moins de " + num(p, "d") + " blocs !";
+                    continue;
+                }
+            } else if ("ARG".equals(target)) {
+                if (args == null || args.length < 2) {
+                    problem = "\u00a7cIl faut indiquer un joueur : \u00a76" + (usage != null ? usage : "/... " + (args == null || args.length == 0 ? "" : args[0])) + " <joueur>";
+                    continue;
+                }
+                subject = Bukkit.getPlayerExact(args[1]);
+                GamePlayer gp = subject == null ? null : GamePlayer.of(subject.getUniqueId());
+                if (subject == null || gp == null || !gp.isAlive()) {
+                    problem = "\u00a7b" + args[1] + "\u00a7c n'est pas connect\u00e9 ou n'est pas en vie.";
+                    continue;
+                }
+                if (subject.getUniqueId().equals(player.getUniqueId())) {
+                    problem = "\u00a7cVous ne pouvez pas vous viser vous-m\u00eame.";
+                    continue;
+                }
+            }
+            if (run(i, subject, subject == null ? null : subject.getLocation())) ran = true;
+        }
+        if (!ran) {
+            if (problem != null) player.sendMessage(problem);
+            else if (wait != Long.MAX_VALUE) player.sendMessage("\u00a7cPouvoir en cooldown : \u00a7b" + ((wait + 999) / 1000) + " s");
+        }
+        return ran;
+    }
+
     /** Lance toutes les règles du déclencheur. */
     private void fire(String trigger, Player subject, Location origin) {
         for (int i = 0; i < rules.size(); i++) {
@@ -220,14 +296,14 @@ public final class RuleEngine implements Listener {
         }
     }
 
-    private void run(int index, Player subject, Location origin) {
+    private boolean run(int index, Player subject, Location origin) {
         Map<String, Object> rule = rules.get(index);
         long now = System.currentTimeMillis();
-        if (now < nextUse[index]) return;
-        if (ownerId() == null) return;
+        if (now < nextUse[index]) return false;
+        if (ownerId() == null) return false;
         Player owner = Bukkit.getPlayer(ownerId());
         GamePlayer gameOwner = GamePlayer.of(ownerId());
-        if (owner == null || gameOwner == null || !gameOwner.isAlive()) return;
+        if (owner == null || gameOwner == null || !gameOwner.isAlive()) return false;
         int cooldown = num(rule, "cd");
         if (cooldown > 0) nextUse[index] = now + cooldown * 1000L;
         try {
@@ -235,6 +311,7 @@ public final class RuleEngine implements Listener {
         } catch (RuntimeException e) {
             Bukkit.getLogger().severe("[UHC-Addon] Erreur dans une règle de " + power.getName() + " : " + e);
         }
+        return true;
     }
 
     // ---------------------------------------------------------------- exécution
@@ -304,6 +381,26 @@ public final class RuleEngine implements Listener {
                     String name = str(p, "name");
                     shownCounters.put(name, color(str(p, "text")));
                     showCounter(name);
+                    continue;
+                }
+                case "COUNT": { // nombre de joueurs visés (filtrés par camp) -> compteur
+                    int n = 0;
+                    String filter = str(p, "filter");
+                    for (Player target : targets(p, ctx)) {
+                        boolean in = teamIs(teamOf(target), str(p, "team"));
+                        if ("ALL".equals(filter) || ("IN".equals(filter) && in) || ("OUT".equals(filter) && !in)) n++;
+                    }
+                    setCounter(str(p, "name"), n);
+                    continue;
+                }
+                case "TP_TO": { // je me téléporte sur / derrière / à côté du premier joueur visé
+                    List<Player> list = targets(p, ctx);
+                    if (list.isEmpty()) continue;
+                    Player target = list.get(0);
+                    String how = str(p, "how");
+                    Location to = "BEHIND".equals(how) ? TeleportSupport.behind(target)
+                            : "AROUND".equals(how) ? TeleportSupport.around(target, 3) : target.getLocation();
+                    if (to != null) ctx.owner.teleport(to);
                     continue;
                 }
                 default:
@@ -418,8 +515,21 @@ public final class RuleEngine implements Listener {
                 Loc.inverserDirectionJoueur(target);
                 return;
             case "MESSAGE":
-                target.sendMessage(color(str(p, "text")));
+                target.sendMessage(text(str(p, "text"), ctx));
                 return;
+            case "DASH": {
+                Vector v = target.getLocation().getDirection().normalize().multiply(0.6 * dbl(p, "n"));
+                v.setY(Math.max(0.3, v.getY()));
+                target.setVelocity(v);
+                return;
+            }
+            case "BRING": { // téléporte le joueur visé devant / autour de / sur moi
+                String how = str(p, "how");
+                Location to = "FRONT".equals(how) ? TeleportSupport.inFrontOf(ctx.owner)
+                        : "AROUND".equals(how) ? TeleportSupport.around(ctx.owner, 3) : ctx.owner.getLocation();
+                if (to != null && !target.getUniqueId().equals(ctx.owner.getUniqueId())) target.teleport(to);
+                return;
+            }
             case "BAR_SHOW": {
                 int seconds = num(p, "s");
                 Bar bar = new Bar(target.getUniqueId(), str(p, "name"), color(str(p, "text")),
@@ -491,6 +601,14 @@ public final class RuleEngine implements Listener {
         switch (str(c, "k")) {
             case "S_ROLE":
                 return ctx.subject != null && roleIs(roleOf(ctx.subject), str(p, "role"));
+            case "IN_WATER": {
+                String block = ctx.owner.getLocation().getBlock().getType().name();
+                return block.contains("WATER");
+            }
+            case "S_EFFECT": {
+                PotionEffectType type = PotionEffectType.getByName(str(p, "effect"));
+                return ctx.subject != null && type != null && ctx.subject.hasPotionEffect(type);
+            }
             case "S_TEAM":
                 return ctx.subject != null && teamIs(teamOf(ctx.subject), str(p, "team"));
             case "MY_TEAM":
@@ -600,6 +718,15 @@ public final class RuleEngine implements Listener {
         counters.put(name, value);
         showCounter(name);
         refreshBars(); // les %compteur% affichés suivent tout de suite
+    }
+
+    /** Texte d'un message : couleurs, %joueur% (joueur concerné), %vie% (sa vie en ❤), %nom_du_compteur%. */
+    private String text(String raw, Ctx ctx) {
+        String text = color(raw);
+        text = text.replace("%joueur%", ctx.subject == null ? "" : ctx.subject.getName());
+        text = text.replace("%vie%", ctx.subject == null ? "" : format(Math.round(ctx.subject.getHealth()) / 2.0).replace('.', ','));
+        for (Map.Entry<String, Double> c : counters.entrySet()) text = text.replace("%" + c.getKey() + "%", format(c.getValue()));
+        return text.replaceAll("%[a-z][a-z0-9_]{0,15}%", "0");
     }
 
     private static String format(double value) {

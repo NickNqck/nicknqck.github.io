@@ -28,12 +28,12 @@ const RULES = (function () {
   const TO = {
     to: sel([["ME", "moi"], ["SUBJECT", "le joueur concerné"], ["AROUND_E", "les ennemis autour de moi"],
       ["AROUND", "tous les joueurs autour de moi"], ["ROLE", "le joueur qui a le rôle"]]),
-    r: Object.assign(num(1, 100, 1, 20), { showIf: { to: ["AROUND_E", "AROUND"] }, suffix: "blocs" }),
-    role: { type: "role", showIf: { to: ["ROLE"] } }
+    r: Object.assign(num(1, 100, 1, 20), { showIf: { to: ["AROUND_E", "AROUND"] }, after: "to", prefix: "dans un rayon de", suffix: "blocs" }),
+    role: { type: "role", showIf: { to: ["ROLE"] }, after: "to" }
   };
   const withTo = function (params) { return Object.assign({}, params, TO); };
 
-  // ---- déclencheurs : subject = libellé du « joueur concerné » (null = aucun) ----
+  // ---- déclencheurs : subject = libellé du « joueur concerné » (null = aucun ; fonction : selon les paramètres) ----
   const TRIGGERS = {
     START: { label: "au début de la partie", subject: null },
     EVERY: { label: "toutes les {s} s", params: { s: num(1, 3600, 1, 10) }, subject: null },
@@ -46,7 +46,18 @@ const RULES = (function () {
       subject: "le joueur frappé" },
     HIT_TAKEN: { label: "quand on me frappe", subject: "mon attaquant" },
     HITS: { label: "tous les {n} coups donnés {per}", params: { n: num(2, 500, 1, 15), per: sel([["SAME", "au même joueur"], ["TOTAL", "au total"]]) },
-      subject: "le joueur frappé" }
+      subject: "le joueur frappé" },
+    // utilisation du pouvoir : clic avec l'objet (pouvoir d'objet) ou commande tapée (pouvoir de commande sans effets)
+    USE: { label: "quand j'utilise ce pouvoir {click} {target}", params: {
+        click: sel([["ANY", "(clic droit ou gauche)"], ["RIGHT", "(clic droit)"], ["LEFT", "(clic gauche)"]]),
+        target: sel([["NONE", "sans cible"], ["AIM", "en visant un joueur"], ["ARG", "sur le joueur nommé dans la commande"]]),
+        d: Object.assign(num(1, 100, 1, 30), { showIf: { target: ["AIM"] }, after: "target", prefix: "à moins de", suffix: "blocs" }) },
+      subject: function (p) { return p && p.target !== "NONE" ? (p.target === "ARG" ? "le joueur nommé" : "le joueur visé") : null; } }
+  };
+  /** Libellé du « joueur concerné » d'une règle (null = aucun). */
+  const subjectOf = function (on, p) {
+    const s = TRIGGERS[on] && TRIGGERS[on].subject;
+    return typeof s === "function" ? s(p || {}) : s || null;
   };
 
   // ---- conditions (capteurs ⬡ d'un « si ») ----
@@ -64,6 +75,8 @@ const RULES = (function () {
     HP: { label: "{who} {op} {hearts} ❤ de vie", params: { who: sel([["ME", "j'ai"], ["SUBJECT", "le joueur concerné a"]]), op: sel(OPS), hearts: num(0.5, 100, 0.5, 7) } },
     MAXHP: { label: "j'ai {op} {hearts} ❤ max", params: { op: sel(OPS), hearts: num(0.5, 100, 0.5, 4) } },
     SNEAK: { label: "je suis accroupi" },
+    IN_WATER: { label: "je suis dans l'eau" },
+    S_EFFECT: { label: "le joueur concerné a l'effet {effect}", params: { effect: { type: "effect" } }, needsSubject: true },
     NO_ARMOR: { label: "je ne porte aucune armure" }
   };
 
@@ -85,6 +98,12 @@ const RULES = (function () {
     PULL: { label: "attirer {to} vers moi, force {n}", params: withTo({ n: num(1, 10, 1, 3) }) },
     UP: { label: "propulser {to} de {n} blocs vers le haut {safe}", params: withTo({ n: num(1, 100, 1, 10), safe: bool("avec dégâts de chute", "sans dégâts de chute") }) },
     LIGHTNING: { label: "faire tomber un éclair sur {to}", params: withTo({}) },
+    DASH: { label: "propulser {to} vers l'avant (là où il regarde), force {n}", params: withTo({ n: num(1, 10, 1, 3) }) },
+    TP_TO: { label: "me téléporter {how} {to}", params: withTo({ how: sel([["BEHIND", "derrière"], ["AROUND", "à côté de"], ["ON", "sur"]]) }) },
+    BRING: { label: "téléporter {to} {how} moi", params: withTo({ how: sel([["FRONT", "devant"], ["AROUND", "autour de"], ["ON", "sur"]]) }) },
+    COUNT: { label: "compter {to} {filter} {team} dans le compteur {name}",
+      params: withTo({ filter: sel([["ALL", "(tous les camps)"], ["IN", "du camp"], ["OUT", "hors du camp"]]),
+        team: { type: "team", showIf: { filter: ["IN", "OUT"] } }, name: { type: "counter" } }) },
     INVERT: { label: "retourner {to} (il regarde derrière lui)", params: withTo({}) },
     MESSAGE: { label: "envoyer « {text} » à {to}", params: withTo({ text: { type: "text", max: 100, dflt: "&7..." } }) },
     TEAM: { label: "passer {to} dans le camp {team}", params: withTo({ team: { type: "team" } }) },
@@ -118,7 +137,7 @@ const RULES = (function () {
     return p;
   }
   const visible = function (d, p) {
-    return !d.showIf || Object.keys(d.showIf).every(function (k) { return d.showIf[k].indexOf(p[k]) !== -1; });
+    return !d || !d.showIf || Object.keys(d.showIf).every(function (k) { return d.showIf[k].indexOf(p[k]) !== -1; });
   };
 
   /**
@@ -195,11 +214,17 @@ const RULES = (function () {
       const r = rules[i], spec = r && TRIGGERS[r.on];
       if (!spec) return { error: "Règle " + (i + 1) + " : déclencheur inconnu." };
       if (r.on === "HIT_GIVEN" && r.p && r.p.with === "ITEM" && !ctx.isItem) return { error: "« avec l'objet de ce pouvoir » demande un pouvoir d'objet." };
+      if (r.on === "USE") {
+        const command = ctx.kind === "COMMAND_RULES";
+        if (!ctx.isItem && !command) return { error: "« quand j'utilise ce pouvoir » demande un pouvoir d'objet ou de commande (« quand le joueur tape … » sans effets)." };
+        if (r.p && r.p.target === "ARG" && !command) return { error: "« sur le joueur nommé dans la commande » demande un pouvoir de commande." };
+        if (r.p && r.p.click && r.p.click !== "ANY" && command) return { error: "Une commande n'a pas de clic : choisis « (clic droit ou gauche) »." };
+      }
       const cp = cleanParams(spec, r.p, ctx, "« " + spec.label.replace(/\{\w+\}/g, "…") + " »");
       if (cp.error) return cp;
       const cd = r.cd === undefined ? 0 : r.cd;
       if (!Number.isInteger(cd) || cd < 0 || cd > 3600) return { error: "Règle " + (i + 1) + " : cooldown invalide." };
-      const body = nodes(r.do || [], 1, spec.subject, "Règle « " + spec.label.replace(/\{\w+\}/g, "…") + " »");
+      const body = nodes(r.do || [], 1, subjectOf(r.on, cp.p), "Règle « " + spec.label.replace(/\{\w+\}/g, "…") + " »");
       if (body.error) return body;
       if (!body.list.length) return { error: "La règle « " + spec.label.replace(/\{\w+\}/g, "…") + " » ne fait rien : ajoute-lui des actions." };
       out.push({ on: r.on, p: cp.p, cd: cd, do: body.list });
@@ -213,19 +238,25 @@ const RULES = (function () {
    */
   function fill(spec, p, names) {
     const params = spec.params || {};
+    // paramètres affichés juste après un autre (rayon après « les joueurs autour », rôle après « le joueur qui a le rôle »...)
+    const extras = function (key) {
+      return Object.keys(params).filter(function (k) { return params[k].after === key && visible(params[k], p); }).map(function (k) {
+        const v = value(k);
+        return " " + (params[k].prefix ? params[k].prefix + " " : "") + v + (params[k].suffix ? " " + params[k].suffix : "");
+      }).join("");
+    };
     const value = function (k) {
       const d = params[k], v = p[k];
       if (!d) return "";
+      if (!visible(d, p)) return "";
       switch (d.type) {
         case "num": return String(v).replace(".", ",");
         case "sel": {
-          if (k === "to" && v === "SUBJECT" && names.subject) return names.subject;
+          if (k === "to" && v === "SUBJECT" && names.subject) return names.subject + extras(k);
           const o = d.options.find(function (x) { return x[0] === v; });
           let s = o ? o[1] : String(v);
-          if (k === "to" && (v === "AROUND" || v === "AROUND_E")) s += " (" + p.r + " blocs)";
-          if (k === "to" && v === "ROLE") s += " " + names.role(p.role);
           if (k === "who" && v === "SUBJECT" && names.subject) s = names.subject + " a";
-          return s;
+          return s + extras(k);
         }
         case "bool": return v ? d.yes : d.no;
         case "role": return names.role(v);
@@ -238,5 +269,6 @@ const RULES = (function () {
   }
 
   return { TRIGGERS: TRIGGERS, CONDITIONS: CONDITIONS, ACTIONS: ACTIONS, defaults: defaults, visible: visible, clean: clean, fill: fill,
+    subjectOf: subjectOf,
     MAX_RULES: MAX_RULES, MAX_NODES: MAX_NODES, MAX_DEPTH: MAX_DEPTH };
 })();

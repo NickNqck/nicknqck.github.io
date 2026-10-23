@@ -297,11 +297,11 @@ const ClassGen = (function () {
    *               kind: PASSIVE | BLOCK_EFFECT | BLOCK_POWER | INFO | ITEM, radius, param, material, itemName }
    */
   function powerClass(spec) {
-    const ITEM = spec.kind === "ITEM", COMMAND = spec.kind === "COMMAND_EFFECTS";
+    const ITEM = spec.kind === "ITEM", COMMAND = spec.kind === "COMMAND_EFFECTS" || spec.kind === "COMMAND_RULES";
     const POWER = "fr/nicknqck/utils/powers/Power", ITEMPOWER = "fr/nicknqck/utils/powers/ItemPower";
     const COOLDOWN = "fr/nicknqck/utils/powers/Cooldown", BUILDER = "fr/nicknqck/utils/itembuilder/ItemBuilder";
     const SUPPORT = "fr/nicknqck/addonbuilder/RoleSupport", ROLE = "Lfr/nicknqck/roles/builder/RoleBase;";
-    const superName = ITEM ? ITEMPOWER : COMMAND ? "fr/nicknqck/addonbuilder/CommandEffectsPower" : POWER;
+    const superName = ITEM ? ITEMPOWER : COMMAND ? "fr/nicknqck/addonbuilder/" + (spec.kind === "COMMAND_RULES" ? "CommandRulesPower" : "CommandEffectsPower") : POWER;
     const P = new Pool();
     const thisC = P.cls(spec.className), superC = P.cls(superName);
     const m = function (owner, name, desc) { return u2(P.ref(10, owner, name, desc)); };

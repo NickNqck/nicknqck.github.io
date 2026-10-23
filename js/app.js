@@ -166,7 +166,7 @@
       }
       case "rules": { // règles « quand … » d'un pouvoir (js/rules-data.js). Rôles et camps : seul leur format est vérifié
         // ici (un rôle renommé ou supprimé ne doit pas faire perdre le .json) ; le .jar vérifie qu'ils existent.
-        const r = RULES.clean(v, { roles: null, teams: null, potions: POTION_LABELS, mcText: MC_TEXT, isItem: !!rec && rec.kind === "ITEM" });
+        const r = RULES.clean(v, { roles: null, teams: null, potions: POTION_LABELS, mcText: MC_TEXT, isItem: !!rec && rec.kind === "ITEM", kind: rec ? rec.kind : "" });
         rulesError = r.error || "";
         return r.error ? undefined : r.rules;
       }
@@ -936,7 +936,7 @@
     }
     if (col.id === COMMANDS_ID) {
       const name = state[col.id][i].name;
-      const used = (state[ROLES_ID] || []).find(function (r) { return (r.powers || []).some(function (p) { return p.kind === "COMMAND_EFFECTS" && p.command === name; }); });
+      const used = (state[ROLES_ID] || []).find(function (r) { return (r.powers || []).some(function (p) { return (p.kind === "COMMAND_EFFECTS" || p.kind === "COMMAND_RULES") && p.command === name; }); });
       if (used) return say("Impossible : la commande /" + name + " est utilisée par un pouvoir du rôle « " + used.name + " ».", true);
     }
     state[col.id].splice(i, 1);
@@ -989,7 +989,7 @@
       if (col.id === COMMANDS_ID && list[ed.index].name !== out.name) {
         const was = list[ed.index].name;
         (state[ROLES_ID] || []).forEach(function (r) {
-          (r.powers || []).forEach(function (p) { if (p.kind === "COMMAND_EFFECTS" && p.command === was) p.command = out.name; });
+          (r.powers || []).forEach(function (p) { if ((p.kind === "COMMAND_EFFECTS" || p.kind === "COMMAND_RULES") && p.command === was) p.command = out.name; });
         });
       }
       list[ed.index] = out;

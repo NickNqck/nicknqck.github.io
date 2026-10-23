@@ -133,7 +133,7 @@ const PowerDescriber = (function () {
       const spec = RULES.TRIGGERS[r.on];
       const body = nodes(r.do);
       if (!spec || !body) return "";
-      names.subject = spec.subject;
+      names.subject = RULES.subjectOf(r.on, r.p);
       const when = RULES.fill(spec, r.p, names);
       return "&e" + when.charAt(0).toUpperCase() + when.slice(1) + "&7 : " + nodes(r.do) + (r.cd > 0 ? " (cooldown " + r.cd + " s)" : "") + ".";
     }).filter(Boolean);
