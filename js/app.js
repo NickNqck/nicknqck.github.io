@@ -1242,6 +1242,12 @@
   }
 
   function render() {
+    renderPage();
+    // page élargie quand l'éditeur à blocs est affiché (comme .chest:has(.bk-row), pour les navigateurs sans :has)
+    const chest = document.querySelector(".chest");
+    if (chest) chest.classList.toggle("chest-blocks", !!document.querySelector(".bk-row"));
+  }
+  function renderPage() {
     spigotLive = null;
     const crumbs = $("#crumbs"), menu = $("#menu");
     crumbs.replaceChildren();

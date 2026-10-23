@@ -367,7 +367,7 @@ a.btn { display: inline-block; text-decoration: none; }
 .rows { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 30rem) {
   /* en colonne, une base de 100 % s'appliquerait à la hauteur : les champs reprennent leur taille normale, sur toute la largeur */
-  .row.wrap input[type="text"], .row.wrap textarea, .row.wrap .mcprev { flex: 0 0 auto; width: 100%; align-self: stretch; }
+  .row.wrap input[type="text"], .row.wrap textarea, .row.wrap .mcprev, .row.wrap .autodesc { flex: 0 0 auto; width: 100%; align-self: stretch; }
 }
 
 /* ---------- Blocs « si ⬡ alors » + capteurs hexagonaux, plein écran ---------- */
@@ -454,3 +454,37 @@ body.bk-noscroll { overflow: hidden; }
 .bk-elselabel { padding: .25rem .6rem 0; font-size: .78rem; }
 .bk input.bk-in.bk-text { width: 12rem; max-width: 100%; text-align: left; }
 .bk-sensor .bk-sel { max-width: 9rem; }
+
+/* Éditeur à blocs plus grand par défaut : la page s'élargit quand il est affiché, et la zone de code occupe
+   la majeure partie de la hauteur de l'écran (palette et programme défilent chacun de leur côté). */
+.chest:has(.bk-row), .chest.chest-blocks { max-width: min(96rem, 100%); }
+.bk-row:not(.bk-full) .bk { height: clamp(18rem, 78vh, 64rem); grid-template-columns: minmax(190px, 270px) minmax(0, 1fr); }
+.bk-row:not(.bk-full) .bk-palette { max-height: none; min-height: 0; }
+.bk-row:not(.bk-full) .bk-script { min-height: 0; overflow: auto; }
+@media (max-width: 720px) {
+  /* téléphone : palette au-dessus (hauteur limitée), programme en dessous, chacun défilant */
+  .bk-row:not(.bk-full) .bk { height: auto; grid-template-columns: minmax(0, 1fr); }
+  .bk-row:not(.bk-full) .bk-palette { max-height: 32vh; }
+  .bk-row:not(.bk-full) .bk-script { height: 62vh; }
+  .chest { padding: .75rem; }
+}
+@media (max-width: 30rem) {
+  .chest { padding: .5rem; border-width: 3px; }
+  .bk-script { padding: .5rem; }
+  .bk .bk-line { gap: .25rem; padding: .35rem .4rem; }
+  .bk select.bk-sel { max-width: 100%; }
+}
+/* glisser-déposer au doigt (appui long) : copie du bloc qui suit le doigt */
+.bk-ghost { position: fixed; z-index: 3000; pointer-events: none; opacity: .85; box-shadow: 0 6px 18px rgba(0,0,0,.45); margin: 0; }
+.bk-touchdrag .bk-script, .bk-touchdrag .bk-palette { touch-action: none; }
+.bk-pal, .bk-t, .bk-line { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* avertissement « snapshot 17 » : sur petit écran il ne recouvre plus le contenu */
+@media (max-width: 720px) {
+  #warn { position: static; max-width: none; margin: 0 .5rem 1rem; }
+}
+/* plein écran : la zone des blocs prend toute la hauteur restante (hauteur définie, pour les lignes en % du mode téléphone) */
+.bk-row.bk-full .bk { flex: 1 1 0; min-height: 0; height: auto; }
+@media (max-width: 720px) {
+  .bk-row.bk-full { padding: .5rem; }
+  .bk-full .bk { grid-template-rows: minmax(0, 35fr) minmax(0, 65fr); }
+}

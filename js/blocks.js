@@ -30,6 +30,7 @@
  * « si » (sa distance est celle du capteur) ; un projectile ne vise pas.
  *
  * Ajout : glisser un bloc de la palette vers le script, ou cliquer dessus (il va dans la zone sélectionnée, utile au doigt).
+ * Au doigt (téléphone, tablette) : un appui long sur un bloc le prend, il se dépose en levant le doigt (touchDrag).
  * Suppression : bouton ✕ du bloc, ou le glisser vers la palette. Bouton « Plein écran » pour coder plus à l'aise.
  */
 const BlockEditor = (function () {
@@ -1683,9 +1684,84 @@ const BlockEditor = (function () {
       drawRules();
     }
 
+    touchDrag(root);
     save(); // normalise le brouillon (mêmes valeurs que le formulaire)
     draw();
     return root;
+  }
+
+  /**
+   * Glisser-déposer au doigt (téléphones, tablettes) : le glisser-déposer HTML5 n'existe pas au toucher. Un appui long
+   * (0,35 s) sur un bloc le « prend », puis il suit le doigt ; les évènements dragstart / dragover / drop / dragend sont
+   * recréés pour que les zones de dépôt du programme et de la palette (corbeille) marchent comme à la souris.
+   * Un simple appui reste un clic (ajout depuis la palette), et un glissement rapide fait défiler normalement.
+   */
+  function touchDrag(root) {
+    let hold = null, src = null, ghost = null, over = null, dt = null, startX = 0, startY = 0;
+    const fire = function (target, type) {
+      if (!target) return false;
+      let ev;
+      try { ev = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }); }
+      catch (e) { ev = new Event(type, { bubbles: true, cancelable: true }); ev.dataTransfer = dt; }
+      target.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    const cancelHold = function () { if (hold) { clearTimeout(hold); hold = null; } };
+    const finish = function () {
+      if (ghost) ghost.remove();
+      ghost = null; src = null; over = null;
+      root.classList.remove("bk-touchdrag");
+    };
+    root.addEventListener("touchstart", function (e) {
+      if (e.touches.length !== 1 || src) return;
+      const item = e.target.closest('[draggable="true"]');
+      if (!item || !root.contains(item) || e.target.closest("input, select, textarea, .bk-x")) return;
+      startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+      cancelHold();
+      hold = setTimeout(function () {
+        hold = null;
+        try { dt = new DataTransfer(); } catch (err) { dt = { setData: function () {}, getData: function () { return ""; }, effectAllowed: "", dropEffect: "" }; }
+        src = item;
+        fire(src, "dragstart");
+        ghost = src.cloneNode(true);
+        ghost.className += " bk-ghost";
+        ghost.style.width = Math.min(src.getBoundingClientRect().width, 260) + "px";
+        document.body.appendChild(ghost);
+        ghost.style.left = (startX - 20) + "px"; ghost.style.top = (startY - 20) + "px";
+        root.classList.add("bk-touchdrag");
+        if (navigator.vibrate) navigator.vibrate(15);
+      }, 350);
+    }, { passive: true });
+    root.addEventListener("touchmove", function (e) {
+      const t = e.touches[0];
+      if (!src) { // avant l'appui long : un vrai déplacement annule (c'est un défilement)
+        if (hold && Math.hypot(t.clientX - startX, t.clientY - startY) > 10) cancelHold();
+        return;
+      }
+      e.preventDefault(); // pas de défilement pendant qu'on tient un bloc
+      ghost.style.left = (t.clientX - 20) + "px"; ghost.style.top = (t.clientY - 20) + "px";
+      ghost.style.display = "none";
+      const under = document.elementFromPoint(t.clientX, t.clientY);
+      ghost.style.display = "";
+      if (under !== over) { if (over) fire(over, "dragleave"); over = under; }
+      if (over) fire(over, "dragover");
+      // défilement automatique du programme ou de la palette près des bords
+      const box = over && over.closest(".bk-script, .bk-palette");
+      if (box) {
+        const r = box.getBoundingClientRect();
+        if (t.clientY < r.top + 40) box.scrollTop -= 12; else if (t.clientY > r.bottom - 40) box.scrollTop += 12;
+      }
+    }, { passive: false });
+    const end = function (e) {
+      cancelHold();
+      if (!src) return;
+      if (e.type === "touchend" && over && fire(over, "dragover")) fire(over, "drop");
+      const from = src;
+      finish();
+      fire(from, "dragend");
+    };
+    root.addEventListener("touchend", end);
+    root.addEventListener("touchcancel", end);
   }
 
   return { render: render, read: read, write: write, refuse: refuse };
