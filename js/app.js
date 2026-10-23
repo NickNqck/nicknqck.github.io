@@ -116,7 +116,8 @@
       case "rolemdj": return modeIds().indexOf(v) !== -1 ? v : undefined; // modes de l'addon ou d'UHC-Meetup
       case "mymdj": return (state[MODES_ID] || []).some(function (m) { return normKey(m.name) === v; }) ? v : undefined;
       case "team": return teamOptions().some(function (t) { return t.id === v; }) ? v : undefined;
-      case "mycommand": return (state[COMMANDS_ID] || []).some(function (c) { return c.name === v; }) ? v : undefined;
+      // commandes de l'addon, ou /aot d'UHC-Meetup (rôles du mode Attaque des Titans, vérifié à la création du .jar)
+      case "mycommand": return v === "aot" || (state[COMMANDS_ID] || []).some(function (c) { return c.name === v; }) ? v : undefined;
       case "multiselect": { // plusieurs choix cochés parmi it.options
         if (!Array.isArray(v) || (it.min && v.length < it.min)) return undefined;
         const seen = Object.create(null);
@@ -296,6 +297,8 @@
     return t.mdj === "all" || t.mdj === mdj;
   }
   function roleProblem(r) {
+    if (r.mdj !== "aot" && (r.powers || []).some(function (p) { return p && p.command === "aot" && /^COMMAND_/.test(p.kind); }))
+      return "La commande /aot d'UHC-Meetup n'est utilisable que par les rôles placés dans le mode « Attaque des Titans ».";
     const t = teamOf(r.team);
     if (!t || !r.mdj || teamFits(t, r.mdj)) return "";
     if (isMeetupMode(r.mdj)) {
@@ -456,7 +459,7 @@
       return BlockEditor.render(obj, {
         dflt: function (id) { const f = siblings.find(function (x) { return x.id === id; }); return f ? copyDefault(f) : undefined; },
         items: ITEMS,
-        commands: (state[COMMANDS_ID] || []).map(function (c) { return c.name; }),
+        commands: (state[COMMANDS_ID] || []).map(function (c) { return c.name; }).concat(mode === "aot" ? ["aot"] : []),
         argPattern: ARG_PATTERN, reserved: RESERVED_ARGS, maxCommandEffects: MAX_COMMAND_EFFECTS,
         blockable: Object.keys(POTION_LABELS).filter(function (k) { return PROTECTED_EFFECTS.indexOf(k) === -1; }),
         teams: (mode ? modeTeams(mode) : []).map(function (t) { return { id: t.id, name: t.name }; }),

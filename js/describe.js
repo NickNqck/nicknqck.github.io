@@ -114,7 +114,7 @@ const PowerDescriber = (function () {
     const names = { role: keyName(typeof MEETUP_ROLES === "undefined" ? [] : MEETUP_ROLES),
       team: keyName(typeof MEETUP_TEAMS === "undefined" ? [] : MEETUP_TEAMS),
       effect: function (v) { return potions[v] || v; } };
-    const SILENT = ["SHOW_COUNTER", "MESSAGE", "BAR_SHOW", "BAR_HIDE", "MARK", "UNMARK"]; // rien à expliquer au joueur
+    const SILENT = ["SHOW_COUNTER", "MESSAGE", "BAR_SHOW", "BAR_HIDE", "MARK", "UNMARK", "FIREWORK", "KNOW"]; // rien à expliquer au joueur
     function nodes(list) {
       return (list || []).map(function (n) {
         const spec = RULES.ACTIONS[n.a];
@@ -126,7 +126,14 @@ const PowerDescriber = (function () {
         }
         if (n.a === "DURING") { const each = nodes(n.do), end = nodes(n.end); return "pendant " + n.p.s + " s : " + (each || "rien") + (end ? ", puis " + end : ""); }
         if (n.a === "WAIT") { const then = nodes(n.do); return then ? n.p.s + " s plus tard, " + then : ""; }
-        return RULES.fill(spec, n.p, names).replace(/ \(0 = toujours\)| \(négatif pour retirer\)/, "").replace(/ pendant 0 s$/, "");
+        if (n.a === "EACH") {
+          const before = names.subject;
+          names.subject = "ce joueur";
+          const each = nodes(n.do);
+          names.subject = before;
+          return each ? "pour chaque joueur parmi " + RULES.fill({ label: "{to}", params: spec.params }, n.p, names) + " : " + each : "";
+        }
+        return RULES.fill(spec, n.p, names).replace(/ \(0 = [^)]*\)| \(négatif pour retirer\)/g, "").replace(/ pendant 0 s$/, "");
       }).filter(Boolean).join("&7, ");
     }
     return (rules || []).map(function (r) {

@@ -173,17 +173,18 @@ const MENU = {
             if (p.kind === "COMMAND_EFFECTS") {
               if (!(p.cmdEffects || []).length) return "Ajoute au moins un bloc « donner un effet » sous « quand le joueur tape … ».";
               if (RESERVED_ARGS.indexOf(p.arg) !== -1) return "L'argument « " + p.arg + " » est déjà pris (/commande me et /commande roles existent déjà).";
+              if (p.command === "aot" && AOT_RESERVED_ARGS.indexOf(p.arg) !== -1) return "L'argument « " + p.arg + " » est déjà pris par /aot d'UHC-Meetup.";
               return "";
             }
             const uses = (p.rules || []).some(function (r) { return r.on === "USE"; });
-            const itemRules = uses || (p.rules || []).some(function (r) { return r.on === "HIT_GIVEN" && r.p && r.p.with === "ITEM"; });
             if (p.kind === "COMMAND_RULES") {
               if (!uses) return "Sans bloc « donner un effet », la commande lance les règles « quand j'utilise ce pouvoir » : ajoute-en une (catégorie Règles).";
               if (RESERVED_ARGS.indexOf(p.arg) !== -1) return "L'argument « " + p.arg + " » est déjà pris (/commande me et /commande roles existent déjà).";
+              if (p.command === "aot" && AOT_RESERVED_ARGS.indexOf(p.arg) !== -1) return "L'argument « " + p.arg + " » est déjà pris par /aot d'UHC-Meetup.";
               return "";
             }
             if (p.kind !== "ITEM") return "";
-            if (p.clickMode === "NONE" && !p.onHit && !itemRules) return "L'objet ne fait rien : ajoute un « si » avec un capteur (clic ou frapper un joueur), ou une règle « quand j'utilise ce pouvoir ».";
+            if (p.clickMode === "NONE" && !p.onHit && !(p.rules || []).length) return "L'objet ne fait rien : ajoute un « si » avec un capteur (clic ou frapper un joueur), ou une règle (« quand j'utilise ce pouvoir »...).";
             const groups = [];
             if (CLICK_MODES_A.indexOf(p.clickMode) !== -1) groups.push(["a", "clic gauche"]);
             if (CLICK_MODES_B.indexOf(p.clickMode) !== -1) groups.push(["b", "clic droit"]);

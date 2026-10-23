@@ -52,3 +52,20 @@ Trois façons de le fournir :
 1. Place `UHC-Meetup snapshot 17.jar` et `spigot.jar` à la racine (à côté de `index.html`) : ils sont ignorés par git.
 2. `gradlew shadowJar`
 3. `py tools/embed-template.py`
+
+## Rôles du mode « Attaque des Titans » d'UHC-Meetup
+
+Un rôle placé dans le mode `aot` d'UHC-Meetup hérite de la classe des rôles de son camp (`SoldatsRoles`, `MahrRoles`, `TitansRoles`, sinon
+`AotRoles`) : il reçoit l'équipement tridimensionnel, apparaît dans les listes des Mahr / des Titans, peut voler un titan, etc. Ses pouvoirs de
+commande peuvent utiliser `/aot <argument>` (sauf `me`, `roles`, `titan`, `info` et `steal`, déjà pris par UHC-Meetup).
+
+Blocs des règles pour ce mode : recevoir un titan d'UHC-Meetup (Assaillant, Bestial, Charette, Colossal, Cuirassé, Mâchoire, Warhammer ou
+au hasard), se déclarer transformé (titans permanents), « quand je me transforme / redeviens humain », « quand je me téléporte avec mon
+équipement tridimensionnel », « quand je récupère un titan », capacité de vol (`/aot steal`), lances explosives, et les conditions « je suis /
+le joueur concerné est transformé en titan », « … a un titan », « … appartient à un joueur ».
+
+Blocs généraux ajoutés en même temps : « pour chaque joueur parmi … » (le joueur concerné devient chacun d'eux), destinataires « tous les
+joueurs en vie », « les joueurs du camp », « un joueur au hasard du camp », « les joueurs portant la marque », informations (camp, rôle,
+inventaire : elles passent par `PowerTakeInfoEvent`, qu'un pouvoir « quand un pouvoir cherche une information sur moi » peut détourner),
+dégâts du coup en cours, partie du corps touchée par une flèche, téléportation au loin, retour dans le temps, armure cachée, feu
+d'artifice, ajout de joueurs à la description, commande avec un nombre (`/aot fasttimetravel 10`).

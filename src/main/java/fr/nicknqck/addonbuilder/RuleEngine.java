@@ -8,6 +8,15 @@ import fr.nicknqck.events.custom.NightEvent;
 import fr.nicknqck.events.custom.UHCPlayerBattleEvent;
 import fr.nicknqck.events.custom.death.UHCDeathEvent;
 import fr.nicknqck.events.custom.roles.PowerActivateEvent;
+import fr.nicknqck.events.custom.roles.aot.TitanTransformEvent;
+import fr.nicknqck.events.power.PowerTakeInfoEvent;
+import fr.nicknqck.events.power.aot.GamePlayerTridimentionnelEvent;
+import fr.nicknqck.enums.InfoType;
+import fr.nicknqck.enums.TitanForm;
+import fr.nicknqck.roles.aot.builders.AotRoles;
+import fr.nicknqck.roles.aot.powers.LancePowerManager;
+import fr.nicknqck.titans.TitanBase;
+import fr.nicknqck.titans.TitanManager;
 import fr.nicknqck.interfaces.IRoles;
 import fr.nicknqck.interfaces.ITeam;
 import fr.nicknqck.player.GamePlayer;
@@ -29,7 +38,9 @@ import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -39,6 +50,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import java.util.WeakHashMap;
+import java.util.function.Consumer;
 
 /**
  * Règles des pouvoirs générés par le site (blocs « quand … » : voir js/rules-data.js) : « quand <déclencheur> »,
@@ -58,6 +70,13 @@ public final class RuleEngine implements Listener {
     private static final Map<UUID, Map<String, Long>> IMMUNE = new HashMap<>();
     /** Moteur de chaque pouvoir (pour « quand j'utilise ce pouvoir » : clic sur l'objet ou commande). */
     private static final Map<Power, RuleEngine> ENGINES = new WeakHashMap<>();
+    /** Armure et objet en main cachés aux autres joueurs (GEAR) : joueur -> jusqu'à (ms). */
+    private static final Map<UUID, Long> HIDDEN = new HashMap<>();
+    /** Dernier titan connu de chaque joueur (le TitanManager l'oublie à la mort, avant les règles « quand je tue »). */
+    private static final Map<UUID, TitanForm> LAST_TITAN = new HashMap<>();
+    /** Titans donnés par une règle (TITAN_GIVE) -> joueur qui l'a reçu : pour lui, ce n'est pas un vol (« quand je récupère un titan »). */
+    private static final Map<TitanBase, UUID> GIVEN = new WeakHashMap<>();
+    private static long lastGlobalTick;
 
     private final Power power;
     private final List<Map<String, Object>> rules = new ArrayList<>();
@@ -73,19 +92,24 @@ public final class RuleEngine implements Listener {
         final String name;
         final String text;
         final String subject; // nom du joueur concerné au moment de l'affichage (%joueur%)
+        final UUID subjectId; // joueur concerné (%fleche%, %distance%), ou null
         final long until;     // fin (ms), 0 = jusqu'à ce qu'une règle le retire
 
-        Bar(UUID player, String name, String text, String subject, long until) {
+        Bar(UUID player, String name, String text, Player subject, long until) {
             this.player = player;
             this.name = name;
             this.text = text;
-            this.subject = subject;
+            this.subject = subject == null ? "" : subject.getName();
+            this.subjectId = subject == null ? null : subject.getUniqueId();
             this.until = until;
         }
     }
     private final long[] nextUse;      // cooldown propre à chaque règle (ms)
     private final int[] everyLeft;     // secondes avant la prochaine « toutes les N s »
     private final Map<String, Integer> hitCounts = new HashMap<>(); // « tous les N coups » : règle#joueur -> coups
+    private final Deque<Location> positions = new ArrayDeque<>();   // mes positions des 60 dernières secondes (REWIND)
+    private boolean ticked;          // première seconde passée
+    private TitanBase seenTitan;     // titan possédé à la dernière seconde (« quand je récupère un titan »)
     private final String key;
 
     @SuppressWarnings("unchecked")
@@ -132,12 +156,128 @@ public final class RuleEngine implements Listener {
     // ---------------------------------------------------------------- évènements
 
     private void tick() {
+        globalTick();
+        UUID owner = ownerId();
+        Player me = owner == null ? null : Bukkit.getPlayer(owner);
+        if (me != null) {
+            positions.addFirst(me.getLocation());
+            while (positions.size() > 60) positions.removeLast();
+        }
+        TitanBase titan = owner == null ? null : titans().getTitan(owner);
+        if (ticked && titan != null && titan != seenTitan && !owner.equals(GIVEN.get(titan))) fire("TITAN_GOT", null, null);
+        seenTitan = titan;
+        ticked = true;
         refreshBars();
         for (int i = 0; i < rules.size(); i++) {
             if (!"EVERY".equals(rules.get(i).get("on"))) continue;
             if (--everyLeft[i] > 0) continue;
             everyLeft[i] = Math.max(1, num(params(rules.get(i)), "s"));
             run(i, null, null);
+        }
+    }
+
+    /** Une fois par seconde pour tous les moteurs : titans connus, armures cachées. */
+    private static void globalTick() {
+        long now = System.currentTimeMillis();
+        if (now - lastGlobalTick < 900L) return;
+        lastGlobalTick = now;
+        TitanManager manager = titans();
+        for (GamePlayer gp : GameState.getInstance().getGamePlayer().values()) {
+            if (!gp.isAlive()) continue;
+            TitanBase titan = manager.getTitan(gp.getUuid());
+            if (titan != null) LAST_TITAN.put(gp.getUuid(), titan.getTitanForm());
+            else LAST_TITAN.remove(gp.getUuid());
+        }
+        for (Iterator<Map.Entry<UUID, Long>> it = HIDDEN.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<UUID, Long> e = it.next();
+            Player player = Bukkit.getPlayer(e.getKey());
+            if (now >= e.getValue()) {
+                it.remove();
+                if (player != null) sendGear(player, false);
+            } else if (player != null) {
+                sendGear(player, true);
+            }
+        }
+    }
+
+    private static TitanManager titans() {
+        return fr.nicknqck.Main.getInstance().getTitanManager();
+    }
+
+    /** Transformé en titan : titan d'UHC-Meetup transformé, ou rôle de l'Attaque des Titans déclaré transformé. */
+    private static boolean isTitan(Player player) {
+        if (player == null) return false;
+        TitanBase titan = titans().getTitan(player.getUniqueId());
+        if (titan != null && titan.isTransformed()) return true;
+        RoleBase role = roleOf(player);
+        return role instanceof AotRoles && ((AotRoles) role).isTransformedinTitan;
+    }
+
+    /** Titan d'un joueur (le dernier connu s'il vient de mourir), ou null. */
+    private static TitanForm titanFormOf(Player player) {
+        if (player == null) return null;
+        TitanBase titan = titans().getTitan(player.getUniqueId());
+        if (titan != null) return titan.getTitanForm();
+        GamePlayer gp = GamePlayer.of(player.getUniqueId());
+        return gp != null && !gp.isAlive() ? LAST_TITAN.get(player.getUniqueId()) : null;
+    }
+
+    private static final String[][] TITAN_CLASSES = {
+            {"ASSAILLANT", "AssaillantV2"}, {"BESTIAL", "BestialV2"}, {"CHARETTE", "CharetteV2"}, {"COLOSSAL", "ColossalV2"},
+            {"CUIRASSE", "CuirasseV2"}, {"MACHOIRE", "MachoireV2"}, {"WARHAMMER", "WarhammerV2"}};
+
+    /** Donne au joueur un titan d'UHC-Meetup (RANDOM : un titan que personne n'a). */
+    private static void giveTitan(Player player, String form) {
+        GamePlayer gp = GamePlayer.of(player.getUniqueId());
+        TitanManager manager = titans();
+        if (gp == null || gp.getRole() == null || manager.hasTitan(player.getUniqueId())) return;
+        String cls = null;
+        if ("RANDOM".equals(form)) {
+            List<String[]> free = new ArrayList<>();
+            for (String[] t : TITAN_CLASSES) if (!manager.isTitanAttributed(TitanForm.valueOf(t[0]))) free.add(t);
+            if (free.isEmpty()) return;
+            cls = free.get(RANDOM.nextInt(free.size()))[1];
+        } else {
+            for (String[] t : TITAN_CLASSES) if (t[0].equals(form)) cls = t[1];
+        }
+        if (cls == null) return;
+        try {
+            TitanBase titan = (TitanBase) Class.forName("fr.nicknqck.titans.impl." + cls).getConstructor(GamePlayer.class).newInstance(gp);
+            GIVEN.put(titan, player.getUniqueId());
+            manager.addTitan(player.getUniqueId(), titan);
+            LAST_TITAN.put(player.getUniqueId(), titan.getTitanForm());
+            player.sendMessage("\u00a77Vous poss\u00e9dez le titan " + titan.getName() + "\u00a77 (\u00a76/aot titan\u00a77).");
+        } catch (Exception e) {
+            Bukkit.getLogger().severe("[UHC-Addon] Titan impossible \u00e0 donner : " + e);
+        }
+    }
+
+    /** Envoie aux autres joueurs l'armure et l'objet en main du joueur, ou rien (caché). */
+    private static void sendGear(Player target, boolean hide) {
+        try {
+            String version = Bukkit.getServer().getClass().getPackage().getName().split("\\.")[3];
+            Class<?> nmsItem = Class.forName("net.minecraft.server." + version + ".ItemStack");
+            Class<?> packetClass = Class.forName("net.minecraft.server." + version + ".PacketPlayOutEntityEquipment");
+            Class<?> packetType = Class.forName("net.minecraft.server." + version + ".Packet");
+            java.lang.reflect.Method copy = Class.forName("org.bukkit.craftbukkit." + version + ".inventory.CraftItemStack")
+                    .getMethod("asNMSCopy", ItemStack.class);
+            java.lang.reflect.Constructor<?> make = packetClass.getConstructor(int.class, int.class, nmsItem);
+            ItemStack[] gear = {target.getItemInHand(), target.getInventory().getBoots(), target.getInventory().getLeggings(),
+                    target.getInventory().getChestplate(), target.getInventory().getHelmet()};
+            List<Object> packets = new ArrayList<>();
+            for (int slot = 0; slot < gear.length; slot++) {
+                Object item = hide || gear[slot] == null ? null : copy.invoke(null, gear[slot]);
+                packets.add(make.newInstance(target.getEntityId(), slot, item));
+            }
+            for (Player observer : target.getWorld().getPlayers()) {
+                if (observer.getUniqueId().equals(target.getUniqueId())) continue;
+                Object handle = observer.getClass().getMethod("getHandle").invoke(observer);
+                Object connection = handle.getClass().getField("playerConnection").get(handle);
+                java.lang.reflect.Method send = connection.getClass().getMethod("sendPacket", packetType);
+                for (Object packet : packets) send.invoke(connection, packet);
+            }
+        } catch (Exception e) {
+            Bukkit.getLogger().severe("[UHC-Addon] Armure impossible \u00e0 cacher : " + e);
         }
     }
 
@@ -177,9 +317,19 @@ public final class RuleEngine implements Listener {
         Object shooter = ((org.bukkit.entity.Projectile) event.getDamager()).getShooter();
         if (!(shooter instanceof Player) || !((Player) shooter).getUniqueId().equals(ownerId())) return;
         Player victim = (Player) event.getEntity();
+        // partie du corps touchée : hauteur de la flèche par rapport aux pieds de la cible
+        double height = event.getDamager().getLocation().getY() - victim.getLocation().getY();
+        final String zone = height > 1.5 ? "HEAD" : height < 0.9 ? "LEGS" : "BODY";
         for (int i = 0; i < rules.size(); i++) {
             Map<String, Object> rule = rules.get(i);
-            if ("HIT_GIVEN".equals(rule.get("on")) && "ARROW".equals(str(params(rule), "with"))) run(i, victim, victim.getLocation());
+            if ("HIT_GIVEN".equals(rule.get("on")) && "ARROW".equals(str(params(rule), "with"))) {
+                run(i, victim, victim.getLocation(), new Consumer<Ctx>() {
+                    @Override
+                    public void accept(Ctx c) {
+                        c.zone = zone;
+                    }
+                });
+            }
         }
     }
 
@@ -200,20 +350,85 @@ public final class RuleEngine implements Listener {
                     if ("ARROW".equals(with)) continue; // les flèches passent par onProjectile
                     if ("SWORD".equals(with) && (hand == null || !hand.getType().name().contains("SWORD"))) continue;
                     if ("ITEM".equals(with) && (!(power instanceof ItemPower) || hand == null || !hand.isSimilar(((ItemPower) power).getItem()))) continue;
-                    run(i, victim, victim.getLocation());
+                    run(i, victim, victim.getLocation(), battle(event));
                 } else if ("HITS".equals(on)) {
                     Map<String, Object> p = params(rule);
                     String counterKey = i + "#" + ("SAME".equals(str(p, "per")) ? victim.getUniqueId().toString() : "*");
                     int hits = (hitCounts.containsKey(counterKey) ? hitCounts.get(counterKey) : 0) + 1;
                     if (hits >= num(p, "n")) {
                         hits = 0;
-                        run(i, victim, victim.getLocation());
+                        run(i, victim, victim.getLocation(), battle(event));
                     }
                     hitCounts.put(counterKey, hits);
                 }
             }
         }
-        if (victim.getUniqueId().equals(owner)) fire("HIT_TAKEN", damager, damager.getLocation());
+        if (victim.getUniqueId().equals(owner)) {
+            for (int i = 0; i < rules.size(); i++) {
+                if ("HIT_TAKEN".equals(rules.get(i).get("on"))) run(i, damager, damager.getLocation(), battle(event));
+            }
+        }
+    }
+
+    private static Consumer<Ctx> battle(final UHCPlayerBattleEvent event) {
+        return new Consumer<Ctx>() {
+            @Override
+            public void accept(Ctx c) {
+                c.battle = event;
+            }
+        };
+    }
+
+    /** « quand je me transforme en titan / redeviens humain » (titans d'UHC-Meetup). */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onTransform(TitanTransformEvent event) {
+        if (event.getTitan() == null || !event.getTitan().getGamePlayer().getUuid().equals(ownerId())) return;
+        transformed(event.isTransforming());
+    }
+
+    private void transformed(boolean start) {
+        for (int i = 0; i < rules.size(); i++) {
+            Map<String, Object> rule = rules.get(i);
+            if (!"TRANSFORM".equals(rule.get("on"))) continue;
+            String when = str(params(rule), "when");
+            if ("ANY".equals(when) || (start ? "START" : "END").equals(when)) run(i, null, null);
+        }
+    }
+
+    /** « quand je me téléporte avec mon équipement tridimensionnel ». */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onTridi(GamePlayerTridimentionnelEvent event) {
+        if (event.getGamePlayer() != null && event.getGamePlayer().getUuid().equals(ownerId())) fire("TRIDI", null, null);
+    }
+
+    /** « quand un pouvoir cherche une information sur moi » : le joueur concerné est celui qui la cherche. */
+    @EventHandler(priority = EventPriority.LOW)
+    public void onInfo(final PowerTakeInfoEvent event) {
+        if (event.isCancelled() || event.getGameTarget() == null || !event.getGameTarget().getUuid().equals(ownerId())) return;
+        if (event.getPower() == null || event.getPower().getRole() == null || event.getPower().getRole().getPlayer() == null) return;
+        Player seeker = Bukkit.getPlayer(event.getPower().getRole().getPlayer());
+        if (seeker == null || seeker.getUniqueId().equals(ownerId())) return;
+        for (int i = 0; i < rules.size(); i++) {
+            if (!"INFO_ON_ME".equals(rules.get(i).get("on"))) continue;
+            run(i, seeker, seeker.getLocation(), new Consumer<Ctx>() {
+                @Override
+                public void accept(Ctx c) {
+                    c.info = event;
+                }
+            });
+        }
+    }
+
+    /** Armure cachée : l'objet en main change, on le recache tout de suite. */
+    @EventHandler
+    public void onHeld(final org.bukkit.event.player.PlayerItemHeldEvent event) {
+        if (!event.getPlayer().getUniqueId().equals(ownerId()) || !HIDDEN.containsKey(ownerId())) return;
+        Bukkit.getScheduler().runTaskLater(Main.getInstance(), new Runnable() {
+            @Override
+            public void run() {
+                if (HIDDEN.containsKey(event.getPlayer().getUniqueId())) sendGear(event.getPlayer(), true);
+            }
+        }, 1L);
     }
 
     @EventHandler
@@ -278,6 +493,7 @@ public final class RuleEngine implements Listener {
                 continue;
             }
             Player subject = null;
+            int number = 0;
             String target = str(p, "target");
             if ("AIM".equals(target)) {
                 power.setTargetDistance(Math.max(1, num(p, "d")));
@@ -301,8 +517,27 @@ public final class RuleEngine implements Listener {
                     problem = "\u00a7cVous ne pouvez pas vous viser vous-m\u00eame.";
                     continue;
                 }
+            } else if ("NUM".equals(target)) {
+                int max = Math.max(1, num(p, "max"));
+                String hint = "\u00a7cIl faut indiquer un nombre de 1 \u00e0 " + max + " : \u00a76"
+                        + (usage != null ? usage : "/... " + (args == null || args.length == 0 ? "" : args[0])) + " <nombre>";
+                try {
+                    number = args == null || args.length < 2 ? 0 : Integer.parseInt(args[1]);
+                } catch (NumberFormatException e) {
+                    number = 0;
+                }
+                if (number < 1 || number > max) {
+                    problem = hint;
+                    continue;
+                }
             }
-            if (run(i, subject, subject == null ? null : subject.getLocation())) ran = true;
+            final int typed = number;
+            if (run(i, subject, subject == null ? null : subject.getLocation(), new Consumer<Ctx>() {
+                @Override
+                public void accept(Ctx c) {
+                    c.number = typed;
+                }
+            })) ran = true;
         }
         if (!ran) {
             if (problem != null) player.sendMessage(problem);
@@ -319,6 +554,11 @@ public final class RuleEngine implements Listener {
     }
 
     private boolean run(int index, Player subject, Location origin) {
+        return run(index, subject, origin, null);
+    }
+
+    /** extra : complète le contexte (coup en cours, flèche, nombre tapé, information cherchée). */
+    private boolean run(int index, Player subject, Location origin, Consumer<Ctx> extra) {
         Map<String, Object> rule = rules.get(index);
         long now = System.currentTimeMillis();
         if (now < nextUse[index]) return false;
@@ -329,7 +569,9 @@ public final class RuleEngine implements Listener {
         int cooldown = num(rule, "cd");
         if (cooldown > 0) nextUse[index] = now + cooldown * 1000L;
         try {
-            exec(list(rule, "do"), new Ctx(owner, subject, origin == null ? owner.getLocation() : origin));
+            Ctx ctx = new Ctx(owner, subject, origin == null ? owner.getLocation() : origin);
+            if (extra != null) extra.accept(ctx);
+            exec(list(rule, "do"), ctx);
         } catch (RuntimeException e) {
             Bukkit.getLogger().severe("[UHC-Addon] Erreur dans une règle de " + power.getName() + " : " + e);
         }
@@ -342,11 +584,25 @@ public final class RuleEngine implements Listener {
         final Player owner;
         final Player subject;
         final Location origin;
+        UHCPlayerBattleEvent battle; // coup en cours (HIT_DAMAGE)
+        String zone;                 // partie du corps touchée par la flèche (HIT_ZONE)
+        int number;                  // nombre tapé dans la commande (REWIND)
+        PowerTakeInfoEvent info;     // information cherchée sur moi (REDIRECT)
 
         Ctx(Player owner, Player subject, Location origin) {
             this.owner = owner;
             this.subject = subject;
             this.origin = origin;
+        }
+
+        /** Même contexte avec un autre joueur concerné (« pour chaque joueur »). */
+        Ctx with(Player other) {
+            Ctx c = new Ctx(owner, other, origin);
+            c.battle = battle;
+            c.zone = zone;
+            c.number = number;
+            c.info = info;
+            return c;
         }
     }
 
@@ -415,6 +671,74 @@ public final class RuleEngine implements Listener {
                     setCounter(str(p, "name"), n);
                     continue;
                 }
+                case "EACH": { // chaque joueur visé, dans un ordre au hasard, devient le joueur concerné
+                    List<Player> list = targets(p, ctx);
+                    Collections.shuffle(list, RANDOM);
+                    for (Player target : list) exec(list(node, "do"), ctx.with(target));
+                    continue;
+                }
+                case "KNOW": { // joueurs ajoutés à ma description (RoleBase.addKnowedPlayers)
+                    RoleBase mine = roleOf(ctx.owner);
+                    if (mine == null) continue;
+                    List<GamePlayer> known = new ArrayList<>();
+                    for (Player target : targets(p, ctx)) {
+                        GamePlayer gp = GamePlayer.of(target.getUniqueId());
+                        if (gp != null) known.add(gp);
+                    }
+                    mine.addKnowedPlayers(color(str(p, "text")), known);
+                    continue;
+                }
+                case "TP_RANDOM": { // moi et les joueurs visés, au même endroit, à N blocs dans une direction au hasard
+                    Location to = Loc.getLocationAtDistance(ctx.owner.getLocation(), dbl(p, "d"));
+                    if (to == null) continue;
+                    List<Player> list = targets(p, ctx);
+                    if (!list.contains(ctx.owner)) list.add(0, ctx.owner);
+                    for (Player target : list) target.teleport(to);
+                    continue;
+                }
+                case "REWIND": { // retour à ma position d'il y a N s (N = nombre tapé, sinon le paramètre)
+                    int seconds = ctx.number > 0 ? ctx.number : num(p, "s");
+                    if (positions.isEmpty()) continue;
+                    Location back = null;
+                    int k = 0;
+                    for (Location l : positions) {
+                        back = l;
+                        if (++k >= seconds) break;
+                    }
+                    if (back != null && back.getWorld() != null) ctx.owner.teleport(back);
+                    continue;
+                }
+                case "HIT_DAMAGE": // dégâts du coup en cours
+                    if (ctx.battle != null) ctx.battle.setDamage(Math.max(0.0, ctx.battle.getDamage() * (1.0 + dbl(p, "pct") / 100.0)));
+                    continue;
+                case "REDIRECT": { // l'information cherchée sur moi vise un joueur au hasard d'un camp
+                    if (ctx.info == null) continue;
+                    List<GamePlayer> list = new ArrayList<>();
+                    for (GamePlayer gp : GameState.getInstance().getGamePlayer().values()) {
+                        if (!gp.isAlive() || gp.getRole() == null || gp.getUuid().equals(ctx.owner.getUniqueId())) continue;
+                        if (ctx.subject != null && gp.getUuid().equals(ctx.subject.getUniqueId())) continue;
+                        if (teamIs(gp.getRole().getTeam(), str(p, "team"))) list.add(gp);
+                    }
+                    if (list.isEmpty()) continue;
+                    ctx.info.setGameTarget(list.get(RANDOM.nextInt(list.size())));
+                    ctx.owner.sendMessage("\u00a77Vous avez \u00e9t\u00e9 cibl\u00e9 par un\u00a7c pouvoir\u00a77 visant \u00e0 conna\u00eetre votre\u00a7a "
+                            + ctx.info.getInfoType().getName().toLowerCase() + "\u00a77 : un autre joueur a \u00e9t\u00e9 vis\u00e9 \u00e0 votre place.");
+                    continue;
+                }
+                case "TITAN_GIVE":
+                    giveTitan(ctx.owner, str(p, "titan"));
+                    continue;
+                case "TITAN_FLAG": { // titans permanents (Petit Titan...) : AotRoles.isTransformedinTitan
+                    RoleBase mine = roleOf(ctx.owner);
+                    boolean on = "ON".equals(str(p, "state"));
+                    if (mine instanceof AotRoles && ((AotRoles) mine).isTransformedinTitan != on) {
+                        ((AotRoles) mine).isTransformedinTitan = on;
+                        for (RuleEngine engine : new ArrayList<>(ENGINES.values())) {
+                            if (ctx.owner.getUniqueId().equals(engine.ownerId())) engine.transformed(on);
+                        }
+                    }
+                    continue;
+                }
                 case "TP_TO": { // je me téléporte sur / derrière / à côté du premier joueur visé
                     List<Player> list = targets(p, ctx);
                     if (list.isEmpty()) continue;
@@ -435,7 +759,9 @@ public final class RuleEngine implements Listener {
     private Ctx refresh(Ctx ctx) {
         Player owner = Bukkit.getPlayer(ctx.owner.getUniqueId());
         Player subject = ctx.subject == null ? null : Bukkit.getPlayer(ctx.subject.getUniqueId());
-        return new Ctx(owner == null ? ctx.owner : owner, subject, owner == null ? ctx.origin : owner.getLocation());
+        Ctx c = new Ctx(owner == null ? ctx.owner : owner, subject, owner == null ? ctx.origin : owner.getLocation());
+        c.number = ctx.number;
+        return c;
     }
 
     private void act(String a, Map<String, Object> p, Ctx ctx, final Player target) {
@@ -551,10 +877,90 @@ public final class RuleEngine implements Listener {
                 target.teleport(look);
                 return;
             }
-            case "MARK": { // marque le joueur pendant N s (condition « le joueur concerné est marqué »)
+            case "MARK": { // marque le joueur pendant N s, 0 = toujours (condition « le joueur concerné est marqué »)
                 Map<UUID, Long> marked = marks.get(str(p, "name"));
                 if (marked == null) marks.put(str(p, "name"), marked = new HashMap<>());
-                marked.put(target.getUniqueId(), System.currentTimeMillis() + num(p, "s") * 1000L);
+                int seconds = num(p, "s");
+                marked.put(target.getUniqueId(), seconds == 0 ? Long.MAX_VALUE : System.currentTimeMillis() + seconds * 1000L);
+                return;
+            }
+            case "STEAL": { // vol de titan d'UHC-Meetup (/aot steal) : seulement pour les rôles de l'Attaque des Titans
+                if (!(role instanceof AotRoles)) return;
+                AotRoles aot = (AotRoles) role;
+                int priority = num(p, "n");
+                if (priority == 0) {
+                    aot.setCanVoleTitan(false);
+                } else {
+                    aot.setCanVoleTitan(true);
+                    aot.setStealPriority(Math.max(aot.getStealPriority(), priority));
+                }
+                return;
+            }
+            case "LANCE":
+                if (gameTarget != null) LancePowerManager.giveLance(gameTarget, num(p, "n"));
+                return;
+            case "INFO": { // camp, rôle ou inventaire : passe par PowerTakeInfoEvent (Eren peut détourner)
+                if (gameTarget == null || gameTarget.getRole() == null) return;
+                String what = str(p, "what");
+                PowerTakeInfoEvent info = new PowerTakeInfoEvent(power, gameTarget,
+                        "ROLE".equals(what) ? InfoType.ROLE : "INV".equals(what) ? InfoType.INV : InfoType.TEAM);
+                Bukkit.getPluginManager().callEvent(info);
+                if (info.isCancelled()) {
+                    ctx.owner.sendMessage("\u00a7cVotre pouvoir a \u00e9t\u00e9 annul\u00e9.");
+                    return;
+                }
+                GamePlayer seen = info.getGameTarget();
+                Player seenPlayer = seen == null ? null : Bukkit.getPlayer(seen.getUuid());
+                if (seen == null || seen.getRole() == null || seenPlayer == null) return;
+                String name = target.getName(); // le joueur visé : il ne doit pas savoir que l'information vient d'un autre
+                if ("TEAM".equals(what)) {
+                    ctx.owner.sendMessage("\u00a7a" + name + "\u00a77 est dans le camp :\u00a7c " + seen.getRole().getTeam().getName());
+                } else if ("ROLE".equals(what)) {
+                    ctx.owner.sendMessage("\u00a7a" + name + "\u00a77 a le r\u00f4le :\u00a7c " + seen.getRole().getName());
+                } else {
+                    org.bukkit.inventory.Inventory inv = Bukkit.createInventory(null, 54, "\u00a7fInventaire de\u00a7a " + (name.length() > 16 ? name.substring(0, 16) : name));
+                    ItemStack[] armor = seenPlayer.getInventory().getArmorContents();
+                    for (int k = 0; k < armor.length && k < 4; k++) inv.setItem(3 - k, armor[k]);
+                    int slot = 18;
+                    for (ItemStack item : seenPlayer.getInventory().getContents()) {
+                        if (item == null || item.getType() == org.bukkit.Material.AIR || slot >= 54) continue;
+                        inv.setItem(slot++, item.clone());
+                    }
+                    ctx.owner.openInventory(inv);
+                }
+                return;
+            }
+            case "GEAR": {
+                if ("HIDE".equals(str(p, "mode"))) {
+                    HIDDEN.put(target.getUniqueId(), System.currentTimeMillis() + num(p, "s") * 1000L);
+                    sendGear(target, true);
+                } else if (HIDDEN.remove(target.getUniqueId()) != null) {
+                    sendGear(target, false);
+                }
+                return;
+            }
+            case "FIREWORK": {
+                final org.bukkit.entity.Firework firework = target.getWorld().spawn(target.getLocation(), org.bukkit.entity.Firework.class);
+                org.bukkit.inventory.meta.FireworkMeta meta = firework.getFireworkMeta();
+                org.bukkit.Color rgb;
+                switch (str(p, "color")) {
+                    case "RED": rgb = org.bukkit.Color.RED; break;
+                    case "BLUE": rgb = org.bukkit.Color.BLUE; break;
+                    case "YELLOW": rgb = org.bukkit.Color.YELLOW; break;
+                    case "WHITE": rgb = org.bukkit.Color.WHITE; break;
+                    case "ORANGE": rgb = org.bukkit.Color.ORANGE; break;
+                    case "PURPLE": rgb = org.bukkit.Color.PURPLE; break;
+                    default: rgb = org.bukkit.Color.GREEN;
+                }
+                meta.addEffect(org.bukkit.FireworkEffect.builder().withColor(rgb).with(org.bukkit.FireworkEffect.Type.BALL).build());
+                meta.setPower(1);
+                firework.setFireworkMeta(meta);
+                Bukkit.getScheduler().runTaskLater(Main.getInstance(), new Runnable() {
+                    @Override
+                    public void run() {
+                        if (firework.isValid()) firework.detonate();
+                    }
+                }, 20L);
                 return;
             }
             case "UNMARK": {
@@ -576,7 +982,7 @@ public final class RuleEngine implements Listener {
             case "GIVE_ITEM": {
                 org.bukkit.Material material = org.bukkit.Material.matchMaterial(str(p, "item"));
                 if (material == null) return;
-                ItemStack stack = new ItemStack(material);
+                ItemStack stack = new ItemStack(material, Math.max(1, Math.min(64, p.containsKey("qty") ? num(p, "qty") : 1)));
                 org.bukkit.inventory.meta.ItemMeta meta = stack.getItemMeta();
                 if (meta != null) {
                     meta.setDisplayName(color(str(p, "text")));
@@ -597,7 +1003,7 @@ public final class RuleEngine implements Listener {
             case "BAR_SHOW": {
                 int seconds = num(p, "s");
                 Bar bar = new Bar(target.getUniqueId(), str(p, "name"), color(str(p, "text")),
-                        ctx.subject == null ? "" : ctx.subject.getName(), seconds == 0 ? 0L : System.currentTimeMillis() + seconds * 1000L);
+                        ctx.subject, seconds == 0 ? 0L : System.currentTimeMillis() + seconds * 1000L);
                 bars.put(bar.player + "#" + bar.name, bar);
                 showBar(bar);
                 return;
@@ -650,6 +1056,29 @@ public final class RuleEngine implements Listener {
                 if (player != null) out.add(player);
                 break;
             }
+            case "ALL":
+            case "TEAM":
+            case "RANDOM":
+            case "MARKED": { // jamais moi
+                Map<UUID, Long> marked = "MARKED".equals(to) ? marks.get(str(p, "mark")) : null;
+                long now = System.currentTimeMillis();
+                for (GamePlayer gp : GameState.getInstance().getGamePlayer().values()) {
+                    if (!gp.isAlive() || gp.getRole() == null || gp.getUuid().equals(ctx.owner.getUniqueId())) continue;
+                    if (("TEAM".equals(to) || "RANDOM".equals(to)) && !teamIs(gp.getRole().getTeam(), str(p, "tteam"))) continue;
+                    if ("MARKED".equals(to)) {
+                        Long until = marked == null ? null : marked.get(gp.getUuid());
+                        if (until == null || now > until) continue;
+                    }
+                    Player player = Bukkit.getPlayer(gp.getUuid());
+                    if (player != null) out.add(player);
+                }
+                if ("RANDOM".equals(to) && out.size() > 1) {
+                    Player pick = out.get(RANDOM.nextInt(out.size()));
+                    out.clear();
+                    out.add(pick);
+                }
+                break;
+            }
             default:
                 out.add(ctx.owner);
         }
@@ -670,6 +1099,33 @@ public final class RuleEngine implements Listener {
                 Long until = ctx.subject == null || marked == null ? null : marked.get(ctx.subject.getUniqueId());
                 return until != null && System.currentTimeMillis() <= until;
             }
+            case "ME_MARKED": {
+                Map<UUID, Long> marked = marks.get(str(p, "name"));
+                Long until = marked == null ? null : marked.get(ctx.owner.getUniqueId());
+                return until != null && System.currentTimeMillis() <= until;
+            }
+            case "S_NEAR": {
+                int radius = num(p, "r");
+                return ctx.subject != null && ctx.subject.getWorld().equals(ctx.owner.getWorld())
+                        && ctx.subject.getLocation().distanceSquared(ctx.owner.getLocation()) <= (double) radius * radius;
+            }
+            case "HIT_ZONE":
+                return ctx.zone != null && ctx.zone.equals(str(p, "zone"));
+            case "ME_TITAN":
+                return isTitan(ctx.owner);
+            case "S_TITAN":
+                return isTitan(ctx.subject);
+            case "HAS_TITAN": {
+                TitanForm form = titanFormOf("SUBJECT".equals(str(p, "who")) ? ctx.subject : ctx.owner);
+                String titan = str(p, "titan");
+                return form != null && ("ANY".equals(titan) || ("MAHR".equals(titan) && form.isMahr()) || form.name().equals(titan));
+            }
+            case "TITAN_TAKEN":
+                try {
+                    return titans().isTitanAttributed(TitanForm.valueOf(str(p, "titan")));
+                } catch (IllegalArgumentException e) {
+                    return false;
+                }
             case "ON_FIRE":
                 return ctx.owner.getFireTicks() > 0;
             case "IN_FIRE": {
@@ -800,6 +1256,10 @@ public final class RuleEngine implements Listener {
         String text = color(raw);
         text = text.replace("%joueur%", ctx.subject == null ? "" : ctx.subject.getName());
         text = text.replace("%vie%", ctx.subject == null ? "" : format(Math.round(ctx.subject.getHealth()) / 2.0).replace('.', ','));
+        Location at = ctx.subject != null ? ctx.subject.getLocation() : ctx.owner.getLocation(), mine = ctx.owner.getLocation();
+        text = text.replace("%x%", String.valueOf(at.getBlockX())).replace("%y%", String.valueOf(at.getBlockY())).replace("%z%", String.valueOf(at.getBlockZ()));
+        text = text.replace("%mon_x%", String.valueOf(mine.getBlockX())).replace("%mon_y%", String.valueOf(mine.getBlockY()))
+                .replace("%mon_z%", String.valueOf(mine.getBlockZ()));
         for (Map.Entry<String, Double> c : counters.entrySet()) text = text.replace("%" + c.getKey() + "%", format(c.getValue()));
         return text.replaceAll("%[a-z][a-z0-9_]{0,15}%", "0");
     }
@@ -825,6 +1285,12 @@ public final class RuleEngine implements Listener {
             text = text.replace("%temps%", "");
         }
         text = text.replace("%joueur%", bar.subject);
+        if (text.contains("%fleche%") || text.contains("%distance%")) { // direction et distance du joueur concerné
+            Player viewer = Bukkit.getPlayer(bar.player), other = bar.subjectId == null ? null : Bukkit.getPlayer(bar.subjectId);
+            boolean same = viewer != null && other != null && viewer.getWorld().equals(other.getWorld());
+            text = text.replace("%fleche%", same ? fr.nicknqck.utils.ArrowTargetUtils.calculateArrow(viewer, other.getLocation()) : "?")
+                    .replace("%distance%", same ? String.valueOf((int) viewer.getLocation().distance(other.getLocation())) : "?");
+        }
         for (Map.Entry<String, Double> c : counters.entrySet()) text = text.replace("%" + c.getKey() + "%", format(c.getValue()));
         return text.replaceAll("%[a-z][a-z0-9_]{0,15}%", "0"); // compteur jamais modifié : 0
     }

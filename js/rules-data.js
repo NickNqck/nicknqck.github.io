@@ -25,11 +25,21 @@ const RULES = (function () {
   const OPS = [["GE", "≥"], ["LE", "≤"], ["EQ", "="]];
 
   // destinataire d'une action : moi, le joueur concerné (selon le déclencheur), les joueurs autour, le joueur d'un rôle
+  // (ALL, TEAM, RANDOM, MARKED : jamais moi)
   const TO = {
     to: sel([["ME", "moi"], ["SUBJECT", "le joueur concerné"], ["AROUND_E", "les ennemis autour de moi"],
-      ["AROUND", "tous les joueurs autour de moi"], ["ROLE", "le joueur qui a le rôle"]]),
+      ["AROUND", "tous les joueurs autour de moi"], ["ROLE", "le joueur qui a le rôle"], ["ALL", "tous les joueurs en vie"],
+      ["TEAM", "les joueurs du camp"], ["RANDOM", "un joueur au hasard du camp"], ["MARKED", "les joueurs portant la marque"]]),
     r: Object.assign(num(1, 100, 1, 20), { showIf: { to: ["AROUND_E", "AROUND"] }, after: "to", prefix: "dans un rayon de", suffix: "blocs" }),
-    role: { type: "role", showIf: { to: ["ROLE"] }, after: "to" }
+    role: { type: "role", showIf: { to: ["ROLE"] }, after: "to" },
+    tteam: { type: "team", showIf: { to: ["TEAM", "RANDOM"] }, after: "to" },
+    mark: { type: "barname", showIf: { to: ["MARKED"] }, after: "to" }
+  };
+  // titans d'UHC-Meetup (enum TitanForm, classes fr.nicknqck.titans.impl.<Nom>V2)
+  const TITANS = [["ASSAILLANT", "Assaillant"], ["BESTIAL", "Bestial"], ["CHARETTE", "Charette"], ["COLOSSAL", "Colossal"],
+    ["CUIRASSE", "Cuirassé"], ["MACHOIRE", "Mâchoire"], ["WARHAMMER", "Warhammer"]];
+  const titanSel = function (first) {
+    return sel((first || []).concat(TITANS.map(function (t) { return [t[0], "le titan " + t[1]]; })));
   };
   const withTo = function (params) { return Object.assign({}, params, TO); };
 
@@ -46,14 +56,22 @@ const RULES = (function () {
     HIT_GIVEN: { label: "quand je frappe un joueur {with}", params: { with: sel([["ANY", "(avec n'importe quoi)"], ["SWORD", "avec une épée"], ["ITEM", "avec l'objet de ce pouvoir"], ["ARROW", "avec une flèche (projectile)"]]) },
       subject: "le joueur frappé" },
     HIT_TAKEN: { label: "quand on me frappe", subject: "mon attaquant" },
+    // Attaque des Titans (titans d'UHC-Meetup, équipement tridimensionnel, pouvoirs d'information)
+    TRANSFORM: { label: "quand je {when}", params: { when: sel([["START", "me transforme en titan"], ["END", "redeviens humain"],
+      ["ANY", "me transforme en titan ou redeviens humain"]]) }, subject: null },
+    TRIDI: { label: "quand je me téléporte avec mon équipement tridimensionnel", subject: null },
+    TITAN_GOT: { label: "quand je récupère un titan (/aot steal)", subject: null },
+    INFO_ON_ME: { label: "quand un pouvoir cherche une information sur moi", subject: "le joueur qui la cherche" },
     HITS: { label: "tous les {n} coups donnés {per}", params: { n: num(2, 500, 1, 15), per: sel([["SAME", "au même joueur"], ["TOTAL", "au total"]]) },
       subject: "le joueur frappé" },
     // utilisation du pouvoir : clic avec l'objet (pouvoir d'objet) ou commande tapée (pouvoir de commande sans effets)
     USE: { label: "quand j'utilise ce pouvoir {click} {target}", params: {
         click: sel([["ANY", "(clic droit ou gauche)"], ["RIGHT", "(clic droit)"], ["LEFT", "(clic gauche)"]]),
-        target: sel([["NONE", "sans cible"], ["AIM", "en visant un joueur"], ["ARG", "sur le joueur nommé dans la commande"]]),
-        d: Object.assign(num(1, 100, 1, 30), { showIf: { target: ["AIM"] }, after: "target", prefix: "à moins de", suffix: "blocs" }) },
-      subject: function (p) { return p && p.target !== "NONE" ? (p.target === "ARG" ? "le joueur nommé" : "le joueur visé") : null; } }
+        target: sel([["NONE", "sans cible"], ["AIM", "en visant un joueur"], ["ARG", "sur le joueur nommé dans la commande"],
+          ["NUM", "avec un nombre dans la commande"]]),
+        d: Object.assign(num(1, 100, 1, 30), { showIf: { target: ["AIM"] }, after: "target", prefix: "à moins de", suffix: "blocs" }),
+        max: Object.assign(num(1, 3600, 1, 60), { showIf: { target: ["NUM"] }, after: "target", prefix: "de 1 à" }) },
+      subject: function (p) { return p && (p.target === "ARG" || p.target === "AIM") ? (p.target === "ARG" ? "le joueur nommé" : "le joueur visé") : null; } }
   };
   /** Libellé du « joueur concerné » d'une règle (null = aucun). */
   const subjectOf = function (on, p) {
@@ -81,7 +99,17 @@ const RULES = (function () {
     IN_FIRE: { label: "je suis dans la lave ou le feu" },
     S_MARKED: { label: "le joueur concerné porte la marque {name}", params: { name: { type: "barname" } }, needsSubject: true },
     S_EFFECT: { label: "le joueur concerné a l'effet {effect}", params: { effect: { type: "effect" } }, needsSubject: true },
-    NO_ARMOR: { label: "je ne porte aucune armure" }
+    NO_ARMOR: { label: "je ne porte aucune armure" },
+    ME_MARKED: { label: "je porte la marque {name}", params: { name: { type: "barname" } } },
+    S_NEAR: { label: "le joueur concerné est à moins de {r} blocs de moi", params: { r: num(1, 200, 1, 15) }, needsSubject: true },
+    HIT_ZONE: { label: "la flèche a touché {zone}", params: { zone: sel([["HEAD", "la tête"], ["BODY", "le torse"], ["LEGS", "les jambes"]]) },
+      needsSubject: true, arrowOnly: true },
+    // titans (Attaque des Titans)
+    ME_TITAN: { label: "je suis transformé en titan" },
+    S_TITAN: { label: "le joueur concerné est transformé en titan", needsSubject: true },
+    HAS_TITAN: { label: "{who} {titan}", params: { who: sel([["ME", "j'ai"], ["SUBJECT", "le joueur concerné a"]]),
+      titan: titanSel([["ANY", "un titan"], ["MAHR", "un titan des Mahr"]]) } },
+    TITAN_TAKEN: { label: "{titan} appartient à un joueur", params: { titan: titanSel() } }
   };
 
   // ---- actions ----
@@ -103,11 +131,11 @@ const RULES = (function () {
     UP: { label: "propulser {to} de {n} blocs vers le haut {safe}", params: withTo({ n: num(1, 100, 1, 10), safe: bool("avec dégâts de chute", "sans dégâts de chute") }) },
     LIGHTNING: { label: "faire tomber un éclair sur {to}", params: withTo({}) },
     LOOK: { label: "faire regarder {dir} à {to}", params: withTo({ dir: sel([["UP", "le ciel"], ["DOWN", "le sol"]]) }) },
-    MARK: { label: "marquer {to} avec la marque {name} pendant {s} s", params: withTo({ name: { type: "barname" }, s: num(1, 3600, 1, 10) }) },
+    MARK: { label: "marquer {to} avec la marque {name} pendant {s} s (0 = toujours)", params: withTo({ name: { type: "barname" }, s: num(0, 3600, 1, 10) }) },
     UNMARK: { label: "retirer la marque {name} à {to}", params: withTo({ name: { type: "barname" } }) },
     ABSORB: { label: "{mode} {hearts} ❤ d'absorption à {to}", params: withTo({ mode: sel([["ADD", "ajouter"], ["SET", "mettre à"]]), hearts: num(0, 20, 0.5, 1) }) },
-    GIVE_ITEM: { label: "donner {item} « {text} » tranchant {sharp} à {to}",
-      params: withTo({ item: sel(typeof ITEMS === "undefined" ? [["DIAMOND_SWORD", "épée en diamant"]] : ITEMS.map(function (i) { return [i.id, i.name]; }), "DIAMOND_SWORD"),
+    GIVE_ITEM: { label: "donner {qty} × {item} « {text} » tranchant {sharp} à {to}",
+      params: withTo({ qty: num(1, 64, 1, 1), item: sel(typeof ITEMS === "undefined" ? [["DIAMOND_SWORD", "épée en diamant"]] : ITEMS.map(function (i) { return [i.id, i.name]; }), "DIAMOND_SWORD"),
         text: { type: "text", max: 40, dflt: "&bÉpée" }, sharp: num(0, 10, 1, 0) }) },
     DASH: { label: "propulser {to} vers l'avant (là où il regarde), force {n}", params: withTo({ n: num(1, 10, 1, 3) }) },
     TP_TO: { label: "me téléporter {how} {to}", params: withTo({ how: sel([["BEHIND", "derrière"], ["AROUND", "à côté de"], ["ON", "sur"]]) }) },
@@ -126,7 +154,25 @@ const RULES = (function () {
     BAR_SHOW: { label: "afficher « {text} » dans la barre d'action de {to} (affichage {name}) pendant {s} s (0 = jusqu'au retrait)",
       params: withTo({ text: { type: "text", max: 60, dflt: "&bTemps restant :&c %temps%" }, name: { type: "barname" }, s: num(0, 3600, 1, 10) }) },
     BAR_HIDE: { label: "retirer l'affichage {name} de la barre d'action de {to}", params: withTo({ name: { type: "barname" } }) },
+    // Attaque des Titans (titans d'UHC-Meetup, lances, vol de titan) et pouvoirs d'information
+    TITAN_GIVE: { label: "recevoir {titan}", params: { titan: titanSel([["RANDOM", "un titan au hasard (que personne n'a)"]]) } },
+    TITAN_FLAG: { label: "me déclarer {state}", params: { state: sel([["ON", "transformé en titan (pour toujours)"], ["OFF", "redevenu humain"]]) } },
+    STEAL: { label: "permettre à {to} de voler un titan (/aot steal), priorité {n} (0 = ne plus pouvoir)", params: withTo({ n: num(0, 10000, 1, 1) }) },
+    LANCE: { label: "donner {n} lance(s) explosive(s) à {to}", params: withTo({ n: num(1, 10, 1, 1) }) },
+    KNOW: { label: "ajouter {to} à ma description sous « {text} »", params: withTo({ text: { type: "text", max: 60, dflt: "&7Vos alliés :" } }) },
+    INFO: { label: "apprendre {what} de {to}", params: withTo({ what: sel([["TEAM", "le camp"], ["ROLE", "le rôle"], ["INV", "l'inventaire (il s'ouvre)"]]) }) },
+    REDIRECT: { label: "faire viser à la place un joueur au hasard du camp {team}", params: { team: { type: "team" } }, infoOnly: true },
+    HIT_DAMAGE: { label: "{pct} % de dégâts pour ce coup", params: { pct: num(-90, 300, 1, 10) }, hitOnly: true },
+    TP_RANDOM: { label: "téléporter moi et {to} à {d} blocs d'ici, dans une direction au hasard (au même endroit)", params: withTo({ d: num(10, 1000, 1, 150) }) },
+    REWIND: { label: "me ramener là où j'étais il y a {s} s (ou le nombre tapé dans la commande)", params: { s: num(1, 60, 1, 10) } },
+    GEAR: { label: "{mode} aux autres joueurs l'armure et l'objet en main de {to}", params: withTo({
+      mode: sel([["HIDE", "cacher"], ["SHOW", "montrer à nouveau"]]),
+      s: Object.assign(num(1, 3600, 1, 180), { showIf: { mode: ["HIDE"] }, after: "to", prefix: "pendant", suffix: "s" }) }) },
+    FIREWORK: { label: "lancer un feu d'artifice {color} sur {to}", params: withTo({ color: sel([["GREEN", "vert"], ["RED", "rouge"], ["BLUE", "bleu"],
+      ["YELLOW", "jaune"], ["WHITE", "blanc"], ["ORANGE", "orange"], ["PURPLE", "violet"]]) }) },
     // conteneurs
+    EACH: { label: "pour chaque joueur parmi {to}, dans un ordre au hasard (« le joueur concerné » = ce joueur) :",
+      params: Object.assign(withTo({}), { to: Object.assign({}, TO.to, { dflt: "ALL" }) }), container: ["do"] },
     IF: { label: "si ⬡ alors", container: ["do", "else"] },
     DURING: { label: "pendant {s} s, chaque seconde :", params: { s: num(1, 3600, 1, 30) }, container: ["do", "end"] },
     WAIT: { label: "attendre {s} s, puis :", params: { s: num(1, 3600, 1, 10) }, container: ["do"] }
@@ -163,6 +209,8 @@ const RULES = (function () {
       const d = params[k];
       let v = raw[k];
       if (!visible(d, Object.assign({}, defaults(spec), raw))) { out[k] = defaults(spec)[k]; continue; }
+      // paramètre ajouté après coup (quantité d'objets...) : un .json plus ancien prend la valeur par défaut
+      if (v === undefined && (d.type === "num" || d.type === "sel" || d.type === "bool")) v = d.dflt;
       switch (d.type) {
         case "num":
           if (typeof v !== "number" || !isFinite(v) || v < d.min || v > d.max || Math.abs(Math.round(v / d.step) * d.step - v) > 1e-9)
@@ -189,7 +237,8 @@ const RULES = (function () {
     if (rules === undefined) return { rules: [] };
     if (!Array.isArray(rules) || rules.length > MAX_RULES) return { error: "Règles invalides (" + MAX_RULES + " au maximum)." };
     let count = 0;
-    function nodes(list, depth, subject, where) {
+    // rule : la règle (déclencheur) ; late : dans un « attendre » / « pendant » (plus de coup ni d'information en cours)
+    function nodes(list, depth, subject, where, rule, late) {
       if (!Array.isArray(list)) return { error: where + " : blocs invalides." };
       if (depth > MAX_DEPTH) return { error: where + " : trop de blocs imbriqués." };
       const out = [];
@@ -201,18 +250,24 @@ const RULES = (function () {
         const cp = cleanParams(spec, n.p, ctx, label);
         if (cp.error) return cp;
         if (cp.p.to === "SUBJECT" && !subject) return { error: label + " : ce déclencheur n'a pas de « joueur concerné »." };
+        if (spec.hitOnly && (late || ["HIT_GIVEN", "HIT_TAKEN", "HITS"].indexOf(rule.on) === -1 || (rule.on === "HIT_GIVEN" && rule.p && rule.p.with === "ARROW")))
+          return { error: label + " : seulement dans une règle « quand je frappe un joueur » (pas avec une flèche), « quand on me frappe » ou « tous les N coups », hors « attendre » / « pendant »." };
+        if (spec.infoOnly && (late || rule.on !== "INFO_ON_ME"))
+          return { error: label + " : seulement dans une règle « quand un pouvoir cherche une information sur moi », hors « attendre » / « pendant »." };
         const o = { a: n.a, p: cp.p };
         if (n.a === "IF") {
           const c = n.c, cs = c && CONDITIONS[c.k];
           if (!cs) return { error: "Un « si » des règles n'a pas de condition (catégorie Conditions)." };
           if (cs.needsSubject && !subject) return { error: "« " + cs.label.replace(/\{\w+\}/g, "…") + " » : ce déclencheur n'a pas de « joueur concerné »." };
+          if (cs.arrowOnly && (late || rule.on !== "HIT_GIVEN" || !rule.p || rule.p.with !== "ARROW"))
+            return { error: "« " + cs.label.replace(/\{\w+\}/g, "…") + " » : seulement dans une règle « quand je frappe un joueur avec une flèche », hors « attendre » / « pendant »." };
           const ccp = cleanParams(cs, c.p, ctx, "« " + cs.label.replace(/\{\w+\}/g, "…") + " »");
           if (ccp.error) return ccp;
           if (ccp.p.who === "SUBJECT" && !subject) return { error: "Une condition parle du « joueur concerné » mais ce déclencheur n'en a pas." };
           o.c = { k: c.k, p: ccp.p };
         }
         for (const slot of spec.container || []) {
-          const r = nodes(n[slot] || [], depth + 1, subject, where);
+          const r = nodes(n[slot] || [], depth + 1, n.a === "EACH" ? "ce joueur" : subject, where, rule, late || n.a === "WAIT" || n.a === "DURING");
           if (r.error) return r;
           o[slot] = r.list;
         }
@@ -229,13 +284,14 @@ const RULES = (function () {
         const command = ctx.kind === "COMMAND_RULES";
         if (!ctx.isItem && !command) return { error: "« quand j'utilise ce pouvoir » demande un pouvoir d'objet ou de commande (« quand le joueur tape … » sans effets)." };
         if (r.p && r.p.target === "ARG" && !command) return { error: "« sur le joueur nommé dans la commande » demande un pouvoir de commande." };
+        if (r.p && r.p.target === "NUM" && !command) return { error: "« avec un nombre dans la commande » demande un pouvoir de commande." };
         if (r.p && r.p.click && r.p.click !== "ANY" && command) return { error: "Une commande n'a pas de clic : choisis « (clic droit ou gauche) »." };
       }
       const cp = cleanParams(spec, r.p, ctx, "« " + spec.label.replace(/\{\w+\}/g, "…") + " »");
       if (cp.error) return cp;
       const cd = r.cd === undefined ? 0 : r.cd;
       if (!Number.isInteger(cd) || cd < 0 || cd > 3600) return { error: "Règle " + (i + 1) + " : cooldown invalide." };
-      const body = nodes(r.do || [], 1, subjectOf(r.on, cp.p), "Règle « " + spec.label.replace(/\{\w+\}/g, "…") + " »");
+      const body = nodes(r.do || [], 1, subjectOf(r.on, cp.p), "Règle « " + spec.label.replace(/\{\w+\}/g, "…") + " »", { on: r.on, p: cp.p }, false);
       if (body.error) return body;
       if (!body.list.length) return { error: "La règle « " + spec.label.replace(/\{\w+\}/g, "…") + " » ne fait rien : ajoute-lui des actions." };
       out.push({ on: r.on, p: cp.p, cd: cd, do: body.list });
@@ -280,6 +336,6 @@ const RULES = (function () {
   }
 
   return { TRIGGERS: TRIGGERS, CONDITIONS: CONDITIONS, ACTIONS: ACTIONS, defaults: defaults, visible: visible, clean: clean, fill: fill,
-    subjectOf: subjectOf,
+    subjectOf: subjectOf, TITANS: TITANS,
     MAX_RULES: MAX_RULES, MAX_NODES: MAX_NODES, MAX_DEPTH: MAX_DEPTH };
 })();

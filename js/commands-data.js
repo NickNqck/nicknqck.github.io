@@ -28,6 +28,8 @@ const RESERVED_COMMANDS = [
 // Pouvoir à base de commande : /nom <argument>. L'argument ne peut pas reprendre les sous-commandes de base (me, roles).
 const ARG_PATTERN = "^[a-z][a-z0-9_]{0,19}$"; // 1 à 20 caractères, commence par une lettre
 const RESERVED_ARGS = ["me", "roles"];
+// /aot d'UHC-Meetup (pouvoirs des rôles du mode Attaque des Titans) : sous-commandes déjà prises
+const AOT_RESERVED_ARGS = ["titan", "info", "steal"];
 const MAX_COMMAND_EFFECTS = 8;
 
 // Tous les noms d'une commande : son nom puis ses alias

@@ -55,9 +55,11 @@ const BlockEditor = (function () {
     { id: "rcond", name: "Conditions des règles", color: "#4BA3C9" },
     { id: "ract", name: "Actions des règles", color: "#7C6BE0" },
     { id: "rcount", name: "Compteurs", color: "#E0702E" },
-    { id: "rbar", name: "Barre d'action", color: "#2E9E8F" }
+    { id: "rbar", name: "Barre d'action", color: "#2E9E8F" },
+    { id: "raot", name: "Attaque des Titans", color: "#B5533C" }
   ];
-  const RULE_CATS = ["rules", "rctrl", "rcond", "ract", "rcount", "rbar"];
+  const RULE_CATS = ["rules", "rctrl", "rcond", "ract", "rcount", "rbar", "raot"];
+  const AOT_ACTIONS = ["TITAN_GIVE", "TITAN_FLAG", "STEAL", "LANCE"];
   // catégories proposées selon le bloc de départ
   const CATS_OF = {
     none: ["events"],
@@ -118,7 +120,8 @@ const BlockEditor = (function () {
   });
   Object.keys(RULES.ACTIONS).forEach(function (k) {
     const spec = RULES.ACTIONS[k];
-    const cat = spec.container ? "rctrl" : k === "SHOW_COUNTER" || k.indexOf("BAR_") === 0 ? "rbar" : k.indexOf("COUNTER") !== -1 ? "rcount" : "ract";
+    const cat = spec.container ? "rctrl" : k === "SHOW_COUNTER" || k.indexOf("BAR_") === 0 ? "rbar" : k.indexOf("COUNTER") !== -1 ? "rcount"
+      : AOT_ACTIONS.indexOf(k) !== -1 ? "raot" : "ract";
     DEF["act_" + k] = { cat: cat, zone: "ract", rule: true, palette: k === "IF" ? "si ⬡ alors … sinon …" : paletteLabel(spec) };
     if (k === "IF") { // les conditions viennent juste après le « si » des règles
       Object.keys(RULES.CONDITIONS).forEach(function (c) {
@@ -129,7 +132,7 @@ const BlockEditor = (function () {
   const isRuleType = function (type) { return !!(DEF[type] && DEF[type].rule); };
   const EVENT_KIND = { evItem: "ITEM", evCommand: "COMMAND_EFFECTS" };
   const PASSIVE_KINDS = ["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "NO_ARMOR"];
-  const CSHAPES = ["if", "launch", "area", "blockFx", "info", "noArmor", "act_IF", "act_DURING", "act_WAIT"];
+  const CSHAPES = ["if", "launch", "area", "blockFx", "info", "noArmor", "act_IF", "act_DURING", "act_WAIT", "act_EACH"];
   // champs du pouvoir écrits par l'éditeur (en plus des champs des clics, préfixes a et b)
   const POWER_FIELDS = ["kind", "powerItem", "clickMode", "onHit", "radius", "blockedEffects", "needSeconds", "teamColors", "defaultColor",
     "armorEffects", "armorNoFall", "command", "arg", "cmdEffects", "cooldown", "maxUse",
@@ -325,8 +328,8 @@ const BlockEditor = (function () {
     const L = find("LEFT"), R = find("RIGHT"), A = find("ANY"), H = find("HIT");
     // un « si » sans capteur (du programme ou imbriqué) rend le pouvoir invalide (clickMode vide) : la validation explique
     const incomplete = prog.branches.some(function (b) { const n = nestedOf(b); return !b.click || (n && !n.cond); });
-    // sans clic ni frappe, l'objet peut ne servir qu'aux règles « quand j'utilise ce pouvoir »
-    const uses = (prog.rules || []).some(function (r) { return r.on === "USE" || (r.on === "HIT_GIVEN" && r.p && r.p.with === "ITEM"); });
+    // sans clic ni frappe, l'objet peut ne servir qu'à ses règles (« quand j'utilise ce pouvoir », flèches d'un arc...)
+    const uses = (prog.rules || []).length > 0;
     p.clickMode = incomplete ? "" : A ? "BOTH_SAME" : L && R ? "DIFFERENT" : L ? "LEFT_ONLY" : R ? "RIGHT_ONLY" : H || uses ? "NONE" : "";
     p.onHit = !!H;
     writeBranch(p, "a", A || L, dflt);
@@ -980,7 +983,22 @@ const BlockEditor = (function () {
       }
       return list;
     }
-    const subjectOf = function (rule) { return rule ? RULES.subjectOf(rule.on, rule.p) : null; };
+    // « joueur concerné » : celui du déclencheur, ou « ce joueur » dans un « pour chaque joueur » (rule.each)
+    const subjectOf = function (rule) { return rule ? (rule.each ? "ce joueur" : RULES.subjectOf(rule.on, rule.p)) : null; };
+    // « joueur concerné » à un endroit des règles (chemin [règle, "do", i, "do", ...])
+    const subjectAt = function (path) {
+      let node = prog.rules[path[0]];
+      if (!node) return null;
+      const rule = node;
+      for (let k = 1; k < path.length; k += 2) {
+        const list = node[path[k]] || [];
+        if (k + 1 >= path.length) break;
+        node = list[path[k + 1]];
+        if (!node) break;
+        if (node.a === "EACH" && path[k + 2] === "do") return "ce joueur";
+      }
+      return subjectOf(rule);
+    };
     const countNodes = function (list) {
       return (list || []).reduce(function (n, x) {
         return n + 1 + (RULES.ACTIONS[x.a] && RULES.ACTIONS[x.a].container || []).reduce(function (m, s) { return m + countNodes(x[s]); }, 0);
@@ -1028,8 +1046,8 @@ const BlockEditor = (function () {
         if (!target || target.a !== "IF") { say("Glisse cette condition dans l'emplacement ⬡ d'un « si » de règle (catégorie Contrôle des règles).", true); return false; }
         const source = from ? rList(from.rp)[from.i] : null;
         if (target.c && target !== source) { say("Ce « si » a déjà une condition : retire-la d'abord (✕).", true); return false; }
-        if (RULES.CONDITIONS[key].needsSubject && !subjectOf(prog.rules[zone.rzc[0]])) {
-          say("Cette condition parle du « joueur concerné » : la règle doit commencer par un kill, une mort ou un coup.", true); return false;
+        if (RULES.CONDITIONS[key].needsSubject && !subjectAt(zone.rzc)) {
+          say("Cette condition parle du « joueur concerné » : la règle doit commencer par un kill, une mort ou un coup, ou la condition doit être dans « pour chaque joueur ».", true); return false;
         }
         const cond = source ? source.c : { k: key, p: ruleDefaults(RULES.CONDITIONS[key]) };
         if (source) source.c = null;
@@ -1046,7 +1064,7 @@ const BlockEditor = (function () {
         if (zone.rz.length > own.length && own.every(function (v, k) { return zone.rz[k] === v; })) { say("Un bloc ne peut pas aller à l'intérieur de lui-même.", true); return false; }
       } else if (allNodes() + 1 > RULES.MAX_NODES) { say(RULES.MAX_NODES + " blocs au maximum dans les règles d'un pouvoir.", true); return false; }
       if (zone.rz.length / 2 + depthOf(node) > RULES.MAX_DEPTH) { say("Trop de blocs imbriqués (" + RULES.MAX_DEPTH + " niveaux au maximum).", true); return false; }
-      if (node.p && node.p.to === "SUBJECT" && !subjectOf(prog.rules[zone.rz[0]])) node.p.to = "ME";
+      if (node.p && node.p.to === "SUBJECT" && !subjectAt(zone.rz)) node.p.to = "ME";
       let at = before === undefined || before > list.length ? list.length : before;
       if (from) {
         const k = fromList.indexOf(node);
@@ -1196,14 +1214,19 @@ const BlockEditor = (function () {
       }
       line.appendChild(closeButton("Supprimer ce bloc", function () { remove(ref); say("Bloc supprimé."); commit(); }));
       if (node.a === "BAR_SHOW") box.appendChild(el("div", "bk-note", "Mis à jour chaque seconde. Dans le texte : %temps% = temps restant, " +
-        "%joueur% = joueur concerné, %charge% = valeur du compteur « charge » (n'importe quel compteur). Même nom d'affichage = il est remplacé."));
+        "%joueur% = joueur concerné, %fleche% et %distance% = direction et distance de ce joueur, %charge% = valeur du compteur « charge » " +
+        "(n'importe quel compteur). Même nom d'affichage = il est remplacé."));
+      if (node.a === "MESSAGE") box.appendChild(el("div", "bk-note", "Dans le texte : %joueur% et %vie% = joueur concerné et sa vie, %x% %y% %z% = sa position, " +
+        "%mon_x% %mon_y% %mon_z% = ma position, %charge% = valeur du compteur « charge »."));
       draggableAs(box, ref, type);
       const slots = { IF: [["do", null, "glisse ici ce qui se passe si la condition est vraie"], ["else", "sinon :", "(facultatif) ce qui se passe sinon"]],
         DURING: [["do", null, "glisse ici ce qui se répète chaque seconde"], ["end", "à la fin :", "(facultatif) ce qui se passe à la fin"]],
-        WAIT: [["do", null, "glisse ici ce qui se passe après l'attente"]] }[node.a] || [];
+        WAIT: [["do", null, "glisse ici ce qui se passe après l'attente"]],
+        EACH: [["do", null, "glisse ici ce qui se passe pour chaque joueur (« le joueur concerné »)"]] }[node.a] || [];
+      const inner = node.a === "EACH" ? Object.assign({}, rule, { each: true }) : rule;
       slots.forEach(function (s, k) {
         if (s[1]) box.appendChild(el("div", "bk-label bk-elselabel", s[1]));
-        box.appendChild(ruleList(node[s[0]] || (node[s[0]] = []), path.concat([i, s[0]]), rule, s[2], k ? " bk-impact" : ""));
+        box.appendChild(ruleList(node[s[0]] || (node[s[0]] = []), path.concat([i, s[0]]), inner, s[2], k ? " bk-impact" : ""));
       });
       if (spec.container) box.appendChild(el("div", "bk-foot"));
       return box;

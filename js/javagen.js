@@ -96,8 +96,9 @@ const JavaGen = (function () {
    */
   function roleClass(spec) {
     const name = id(spec.constant);
+    const parent = spec.superClass || "fr.nicknqck.roles.builder.RoleBase";
     const imports = ["fr.nicknqck.GameState", "fr.nicknqck.interfaces.IRoles", "fr.nicknqck.interfaces.ITeam",
-      "fr.nicknqck.roles.builder.RoleBase", "net.md_5.bungee.api.chat.TextComponent", "java.util.UUID",
+      parent, "net.md_5.bungee.api.chat.TextComponent", "java.util.UUID",
       PKG + ".AddonRoles", PKG + ".RoleSupport"];
     const timed = spec.noFall === "DAY" || spec.noFall === "NIGHT";
     const custom = timed || !!spec.extra;
@@ -129,11 +130,13 @@ const JavaGen = (function () {
         "        return RoleSupport.component(this, " + lit(spec.noFall || "NONE") + ", " + lit(spec.extra || "") + ");\n"
       : "        return AutomaticDesc.createFullAutomaticDesc(this);\n";
     return header(PKG + ".roles", imports) + GENERATED +
-      "public class " + name + " extends RoleBase {\n\n" +
+      (parent.indexOf(".aot.") !== -1 ? "// rôle du mode Attaque des Titans : équipement tridimensionnel, /aot, vol de titan...\n" : "") +
+      "public class " + name + " extends " + simple(parent) + " {\n\n" +
       "    public " + name + "(UUID player) {\n        super(player);\n    }\n\n" +
       "    @Override\n    public String getName() {\n        return " + lit(spec.displayName) + ";\n    }\n\n" +
       "    @Override\n    public IRoles<?> getRoles() {\n        return AddonRoles." + name + ";\n    }\n\n" +
-      "    @Override\n    public ITeam getOriginTeam() {\n        return getRoles().getTeam();\n    }\n\n" +
+      // SoldatsRoles, MahrRoles et TitansRoles donnent déjà leur camp (TeamList) : rien à redéfinir
+      (/(Soldats|Mahr|Titans)Roles$/.test(parent) ? "" : "    @Override\n    public ITeam getOriginTeam() {\n        return getRoles().getTeam();\n    }\n\n") +
       "    @Override\n    public TextComponent getComponent() {\n" + component + "    }\n\n" +
       "    @Override\n    public void RoleGiven(GameState gameState) {\n" + (body.length ? body.join("\n") + "\n" : "") + "    }\n}\n";
   }

@@ -175,9 +175,10 @@ const JarBuilder = (function () {
       let command = "", arg = "", autoLine = null;
       if (p.kind === "COMMAND_EFFECTS" || p.kind === "COMMAND_RULES") {
         const title = stripMc(p.title);
-        const known = (settings.commands || []).some(function (c) { return c && c.name === p.command; });
+        const native = MEETUP_COMMANDS[p.command]; // /aot d'UHC-Meetup : seulement pour un rôle de ce mode
+        const known = native ? native.mdj === role.mdj : (settings.commands || []).some(function (c) { return c && c.name === p.command; });
         if (typeof p.command !== "string" || !/^[a-z][a-z0-9_]{0,15}$/.test(p.command) || !known) throw new Error("Commande inconnue pour le pouvoir " + title);
-        if (typeof p.arg !== "string" || !/^[a-z][a-z0-9_]{0,19}$/.test(p.arg) || RESERVED_ARGS.indexOf(p.arg) !== -1) throw new Error("Argument de commande invalide pour le pouvoir " + title);
+        if (typeof p.arg !== "string" || !/^[a-z][a-z0-9_]{0,19}$/.test(p.arg) || (native ? native.reserved : RESERVED_ARGS).indexOf(p.arg) !== -1) throw new Error("Argument de commande invalide pour le pouvoir " + title);
         if (commandArgs[p.command + " " + p.arg]) throw new Error("Deux pouvoirs du rôle " + role.constant + " utilisent /" + p.command + " " + p.arg);
         commandArgs[p.command + " " + p.arg] = true;
         command = p.command; arg = p.arg;
@@ -208,8 +209,9 @@ const JarBuilder = (function () {
         if (typeof p.powerItem !== "string" || !/^[A-Z0-9_]{2,40}$/.test(p.powerItem)) throw new Error("Objet invalide pour le pouvoir " + title);
         if (["LEFT_ONLY", "RIGHT_ONLY", "BOTH_SAME", "DIFFERENT", "NONE"].indexOf(p.clickMode) === -1) throw new Error("Clic invalide pour le pouvoir " + title);
         const onHit = p.onHit === true;
-        const uses = (p.rules || []).some(function (r) { return r.on === "USE" || (r.on === "HIT_GIVEN" && r.p && r.p.with === "ITEM"); });
-        if (p.clickMode === "NONE" && !onHit && !uses) throw new Error("Le pouvoir " + title + " n'a ni clic, ni frappe, ni règle « quand j'utilise ce pouvoir ».");
+        // sans clic ni frappe : un objet porteur de règles (un arc dont les flèches agissent, « quand j'utilise ce pouvoir »...)
+        const uses = (p.rules || []).length > 0;
+        if (p.clickMode === "NONE" && !onHit && !uses) throw new Error("Le pouvoir " + title + " n'a ni clic, ni frappe, ni règle.");
         const TYPES = ["EFFECT_ONLY", "TP_BEHIND", "TP_AROUND", "TP_TO_USER", "LAUNCH", "AREA"];
         // action = "TYPE,distanceDeVisée,distanceAutour,effets,projectile" ; effets = "U|T:EFFET:ticks:amplificateur" séparés par "+" ;
         // projectile (LAUNCH seulement) = "PROJECTILE;tp;zone;rayon;dégâtsEnDemiCœurs;secondes;couleurHex"
@@ -352,6 +354,16 @@ const JarBuilder = (function () {
   }
 
   // Une classe par rôle : { constant, effects: [{ type, ticks, amp, when }] }
+  // Rôle placé dans le mode Attaque des Titans d'UHC-Meetup : il hérite de la classe des rôles de son camp (équipement
+  // tridimensionnel, /aot, vol de titan, listes des Mahr et des Titans, maître des Ackerman...)
+  const AOT_SUPER = { Soldat: "SoldatsRoles", Mahr: "MahrRoles", Titan: "TitansRoles" };
+  function superClassOf(r) {
+    if (r.mdj !== "aot") return "fr.nicknqck.roles.builder.RoleBase";
+    return "fr.nicknqck.roles.aot.builders." + (r.teamClass === "fr.nicknqck.enums.TeamList" && AOT_SUPER[r.teamConst] || "AotRoles");
+  }
+  // commande d'UHC-Meetup utilisable par les pouvoirs des rôles de ce mode (sous-commandes réservées par UHC-Meetup)
+  const MEETUP_COMMANDS = { aot: { mdj: "aot", reserved: ["me", "roles", "titan", "info", "steal"] } };
+
   function roleClassesOf(settings, roles) {
     return roles.map(function (r) {
       const effects = (r.effects || []).map(function (e) {
@@ -371,7 +383,7 @@ const JarBuilder = (function () {
           (r.revive.hearts > 0 ? " en perdant\u00a7c " + r.revive.hearts + "\u2764 permanent" + (r.revive.hearts > 1 ? "s" : "") + "\u00a77." : "."));
       }
       return { constant: r.constant, displayName: r.displayName, effects: effects, powers: powersOf(r, settings), noFall: r.noFall,
-        revive: r.revive, extra: extra.join("\n") };
+        revive: r.revive, extra: extra.join("\n"), superClass: superClassOf(r) };
     });
   }
 
@@ -481,6 +493,7 @@ const JarBuilder = (function () {
           ctx.zip.file(ROLE_PACKAGE + c.constant + ".class", ClassGen.roleClass({
             className: ROLE_PACKAGE + c.constant, enumClass: ROLES_CLASS, constant: c.constant,
             displayName: c.displayName, support: SUPPORT, effects: c.effects, noFall: c.noFall, revive: c.revive, extra: c.extra,
+            superClass: c.superClass.replace(/\./g, "/"),
             powers: c.powers.map(function (p) { return { className: p.className.replace(/\//g, "."), item: p.kind === "ITEM" }; }) }), { binary: true });
           c.powers.forEach(function (p) { ctx.zip.file(p.className + ".class", ClassGen.powerClass(p), { binary: true }); });
         });
@@ -648,6 +661,7 @@ const JarBuilder = (function () {
         roleClassesOf(s, roles).forEach(function (c) {
           ctx.files[JAVA + "roles/" + c.constant + ".java"] = JavaGen.roleClass({
             constant: c.constant, displayName: c.displayName, noFall: c.noFall, effects: c.effects, revive: c.revive, extra: c.extra,
+            superClass: c.superClass,
             powers: c.powers.map(function (p) { return { className: p.className, item: p.kind === "ITEM" }; }) });
           c.powers.forEach(function (p) {
             ctx.files[JAVA + "powers/" + p.className.split("/").pop() + ".java"] = JavaGen.powerClass(p);

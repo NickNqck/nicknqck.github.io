@@ -224,7 +224,9 @@ const ClassGen = (function () {
    */
   function roleClass(spec) {
     const P = new Pool();
-    const SUPER = "fr/nicknqck/roles/builder/RoleBase";
+    // RoleBase, ou la classe des rôles de l'Attaque des Titans (SoldatsRoles...) : même constructeur (UUID)
+    const SUPER = spec.superClass || "fr/nicknqck/roles/builder/RoleBase";
+    if (!/^fr\/nicknqck\/roles\/(builder\/RoleBase|aot\/builders\/(AotRoles|SoldatsRoles|MahrRoles|TitansRoles))$/.test(SUPER)) throw new Error("Classe mère invalide.");
     const IROLES = "Lfr/nicknqck/interfaces/IRoles;", ITEAM = "Lfr/nicknqck/interfaces/ITeam;";
     const TC = "Lnet/md_5/bungee/api/chat/TextComponent;";
     const thisC = P.cls(spec.className), superC = P.cls(SUPER);
@@ -240,7 +242,8 @@ const ClassGen = (function () {
     method(0x0001, "getName", "()Ljava/lang/String;", 1, 1, [0x13].concat(u2(P.str(spec.displayName)), [0xb0]));
     method(0x0001, "getRoles", "()" + IROLES, 1, 1,
       [0xb2].concat(u2(P.ref(9, spec.enumClass, spec.constant, "L" + spec.enumClass + ";")), [0xb0]));
-    method(0x0001, "getOriginTeam", "()" + ITEAM, 1, 1,
+    // SoldatsRoles, MahrRoles et TitansRoles donnent déjà leur camp (TeamList getOriginTeam()) : rien à redéfinir
+    if (!/(Soldats|Mahr|Titans)Roles$/.test(SUPER)) method(0x0001, "getOriginTeam", "()" + ITEAM, 1, 1,
       [0x2a, 0xb6].concat(m(spec.className, "getRoles", "()" + IROLES), [0xb9],
         u2(P.ref(11, "fr/nicknqck/interfaces/IRoles", "getTeam", "()" + ITEAM)), [1, 0, 0xb0]));
     if (spec.noFall === "DAY" || spec.noFall === "NIGHT" || spec.extra) {
