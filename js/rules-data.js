@@ -13,7 +13,7 @@
  *
  * Paramètres : num [min, max, pas, défaut], sel [[valeur, libellé]…], bool [non, oui], role ("meetup:NezukoV2" ou
  * "addon:<constante du rôle>"), team ("meetup:Demon" ou "addon:<constante de l'équipe>"), effect (PotionEffectType), text,
- * counter.
+ * counter (nom de compteur), barname (nom d'un affichage de la barre d'action).
  * Libellés : {param} est remplacé par le champ du bloc.
  */
 const RULES = (function () {
@@ -91,6 +91,11 @@ const RULES = (function () {
     COUNTER_ADD: { label: "ajouter {n} au compteur {name}, entre {min} et {max}", params: { name: { type: "counter" }, n: num(-100000, 100000, 1, 1), min: num(-100000, 100000, 1, 0), max: num(-100000, 100000, 1, 100) } },
     COUNTER_SET: { label: "mettre le compteur {name} à {n}", params: { name: { type: "counter" }, n: num(-100000, 100000, 1, 0) } },
     SHOW_COUNTER: { label: "afficher « {text} » + compteur {name} dans ma barre d'action", params: { text: { type: "text", max: 40, dflt: "&bCharge :&c" }, name: { type: "counter" } } },
+    // barre d'action d'un joueur (GamePlayer.getActionBarManager()) : texte mis à jour chaque seconde ;
+    // %temps% = temps restant, %joueur% = joueur concerné, %nom_du_compteur% = valeur d'un compteur
+    BAR_SHOW: { label: "afficher « {text} » dans la barre d'action de {to} (affichage {name}) pendant {s} s (0 = jusqu'au retrait)",
+      params: withTo({ text: { type: "text", max: 60, dflt: "&bTemps restant :&c %temps%" }, name: { type: "barname" }, s: num(0, 3600, 1, 10) }) },
+    BAR_HIDE: { label: "retirer l'affichage {name} de la barre d'action de {to}", params: withTo({ name: { type: "barname" } }) },
     // conteneurs
     IF: { label: "si ⬡ alors", container: ["do", "else"] },
     DURING: { label: "pendant {s} s, chaque seconde :", params: { s: num(1, 3600, 1, 30) }, container: ["do", "end"] },
@@ -107,7 +112,8 @@ const RULES = (function () {
     const p = {};
     Object.keys(spec.params || {}).forEach(function (k) {
       const d = spec.params[k];
-      p[k] = d.type === "num" || d.type === "sel" || d.type === "bool" ? d.dflt : d.type === "text" ? d.dflt || "" : "";
+      p[k] = d.type === "num" || d.type === "sel" || d.type === "bool" ? d.dflt : d.type === "text" ? d.dflt || ""
+        : d.type === "counter" ? "charge" : d.type === "barname" ? "info" : "";
     });
     return p;
   }
@@ -141,6 +147,7 @@ const RULES = (function () {
           if (typeof v !== "string" || !v.length || v.length > (d.max || 100) || (ctx.mcText && !ctx.mcText.test(v))) return { error: where + " : texte invalide." };
           break;
         case "counter": if (typeof v !== "string" || !/^[a-z][a-z0-9_]{0,15}$/.test(v)) return { error: where + " : nom de compteur invalide (minuscules, chiffres, _)." }; break;
+        case "barname": if (typeof v !== "string" || !/^[a-z][a-z0-9_]{0,15}$/.test(v)) return { error: where + " : nom d'affichage invalide (minuscules, chiffres, _)." }; break;
       }
       out[k] = v;
     }

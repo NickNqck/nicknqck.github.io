@@ -52,9 +52,10 @@ const BlockEditor = (function () {
     { id: "rctrl", name: "Contrôle des règles", color: "#FFAB19" },
     { id: "rcond", name: "Conditions des règles", color: "#4BA3C9" },
     { id: "ract", name: "Actions des règles", color: "#7C6BE0" },
-    { id: "rcount", name: "Compteurs", color: "#E0702E" }
+    { id: "rcount", name: "Compteurs", color: "#E0702E" },
+    { id: "rbar", name: "Barre d'action", color: "#2E9E8F" }
   ];
-  const RULE_CATS = ["rules", "rctrl", "rcond", "ract", "rcount"];
+  const RULE_CATS = ["rules", "rctrl", "rcond", "ract", "rcount", "rbar"];
   // catégories proposées selon le bloc de départ
   const CATS_OF = {
     none: ["events"],
@@ -115,7 +116,7 @@ const BlockEditor = (function () {
   });
   Object.keys(RULES.ACTIONS).forEach(function (k) {
     const spec = RULES.ACTIONS[k];
-    const cat = spec.container ? "rctrl" : k.indexOf("COUNTER") !== -1 ? "rcount" : "ract";
+    const cat = spec.container ? "rctrl" : k === "SHOW_COUNTER" || k.indexOf("BAR_") === 0 ? "rbar" : k.indexOf("COUNTER") !== -1 ? "rcount" : "ract";
     DEF["act_" + k] = { cat: cat, zone: "ract", rule: true, palette: k === "IF" ? "si ⬡ alors … sinon …" : paletteLabel(spec) };
     if (k === "IF") { // les conditions viennent juste après le « si » des règles
       Object.keys(RULES.CONDITIONS).forEach(function (c) {
@@ -992,6 +993,7 @@ const BlockEditor = (function () {
         const d = spec.params[k];
         if (d.type === "effect") p[k] = opts.potions.SPEED ? "SPEED" : Object.keys(opts.potions)[0];
         if (d.type === "counter") p[k] = "charge";
+        if (d.type === "barname") p[k] = "info";
       });
       return p;
     }
@@ -1002,7 +1004,7 @@ const BlockEditor = (function () {
       (spec.container || []).forEach(function (s) { node[s] = []; });
       return node;
     }
-    const RULE_HELP = "Règle ajoutée : glisse-lui des actions (catégories Actions des règles, Contrôle des règles, Compteurs).";
+    const RULE_HELP = "Règle ajoutée : glisse-lui des actions (catégories Actions des règles, Contrôle des règles, Compteurs, Barre d'action).";
 
     function ruleInsert(type, zone, before, from) {
       if (!isRuleType(type)) { say("Dans une règle, utilise les blocs des catégories Actions des règles, Contrôle des règles et Compteurs.", true); return false; }
@@ -1116,8 +1118,9 @@ const BlockEditor = (function () {
           const n = el("input", "bk-in" + (d.type === "text" ? " bk-text" : " bk-arg"));
           n.type = "text"; n.value = p[key];
           n.maxLength = d.type === "text" ? d.max || 100 : 16;
-          n.setAttribute("aria-label", d.type === "text" ? "texte" : "nom du compteur");
+          n.setAttribute("aria-label", d.type === "text" ? "texte" : d.type === "barname" ? "nom de l'affichage" : "nom du compteur");
           if (d.type === "counter") n.placeholder = "charge";
+          if (d.type === "barname") n.placeholder = "info";
           const ok = d.type === "text" ? function (v) { return v.length > 0 && (!opts.mcText || opts.mcText.test(v)); }
             : function (v) { return /^[a-z][a-z0-9_]{0,15}$/.test(v); };
           const check = function () { n.classList.toggle("bad", !ok(n.value)); };
@@ -1181,6 +1184,8 @@ const BlockEditor = (function () {
         ruleLabel(line, spec, node.p, rule);
       }
       line.appendChild(closeButton("Supprimer ce bloc", function () { remove(ref); say("Bloc supprimé."); commit(); }));
+      if (node.a === "BAR_SHOW") box.appendChild(el("div", "bk-note", "Mis à jour chaque seconde. Dans le texte : %temps% = temps restant, " +
+        "%joueur% = joueur concerné, %charge% = valeur du compteur « charge » (n'importe quel compteur). Même nom d'affichage = il est remplacé."));
       draggableAs(box, ref, type);
       const slots = { IF: [["do", null, "glisse ici ce qui se passe si la condition est vraie"], ["else", "sinon :", "(facultatif) ce qui se passe sinon"]],
         DURING: [["do", null, "glisse ici ce qui se répète chaque seconde"], ["end", "à la fin :", "(facultatif) ce qui se passe à la fin"]],

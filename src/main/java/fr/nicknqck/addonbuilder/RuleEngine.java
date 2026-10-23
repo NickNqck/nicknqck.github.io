@@ -32,6 +32,8 @@ import org.bukkit.util.Vector;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -58,6 +60,24 @@ public final class RuleEngine implements Listener {
     private final List<Map<String, Object>> rules = new ArrayList<>();
     private final Map<String, Double> counters = new HashMap<>();
     private final Map<String, String> shownCounters = new HashMap<>(); // compteur -> texte avant la valeur
+    /** Affichages de la barre d'action (ActionBarManager du GamePlayer) : "joueur#nom" -> affichage, mis à jour chaque seconde. */
+    private final Map<String, Bar> bars = new LinkedHashMap<>();
+
+    private static final class Bar {
+        final UUID player;
+        final String name;
+        final String text;
+        final String subject; // nom du joueur concerné au moment de l'affichage (%joueur%)
+        final long until;     // fin (ms), 0 = jusqu'à ce qu'une règle le retire
+
+        Bar(UUID player, String name, String text, String subject, long until) {
+            this.player = player;
+            this.name = name;
+            this.text = text;
+            this.subject = subject;
+            this.until = until;
+        }
+    }
     private final long[] nextUse;      // cooldown propre à chaque règle (ms)
     private final int[] everyLeft;     // secondes avant la prochaine « toutes les N s »
     private final Map<String, Integer> hitCounts = new HashMap<>(); // « tous les N coups » : règle#joueur -> coups
@@ -106,6 +126,7 @@ public final class RuleEngine implements Listener {
     // ---------------------------------------------------------------- évènements
 
     private void tick() {
+        refreshBars();
         for (int i = 0; i < rules.size(); i++) {
             if (!"EVERY".equals(rules.get(i).get("on"))) continue;
             if (--everyLeft[i] > 0) continue;
@@ -399,6 +420,19 @@ public final class RuleEngine implements Listener {
             case "MESSAGE":
                 target.sendMessage(color(str(p, "text")));
                 return;
+            case "BAR_SHOW": {
+                int seconds = num(p, "s");
+                Bar bar = new Bar(target.getUniqueId(), str(p, "name"), color(str(p, "text")),
+                        ctx.subject == null ? "" : ctx.subject.getName(), seconds == 0 ? 0L : System.currentTimeMillis() + seconds * 1000L);
+                bars.put(bar.player + "#" + bar.name, bar);
+                showBar(bar);
+                return;
+            }
+            case "BAR_HIDE": {
+                Bar bar = bars.remove(target.getUniqueId() + "#" + str(p, "name"));
+                if (bar != null) hideBar(bar);
+                return;
+            }
             case "TEAM": {
                 ITeam team = team(str(p, "team"));
                 if (role != null && team != null) role.setTeam(team);
@@ -565,6 +599,56 @@ public final class RuleEngine implements Listener {
     private void setCounter(String name, double value) {
         counters.put(name, value);
         showCounter(name);
+        refreshBars(); // les %compteur% affichés suivent tout de suite
+    }
+
+    private static String format(double value) {
+        return value == Math.rint(value) ? String.valueOf((long) value) : String.valueOf(value);
+    }
+
+    // ---------------------------------------------------------------- barre d'action (GamePlayer.getActionBarManager())
+
+    /** Clé de l'affichage dans l'ActionBarManager : propre à ce pouvoir et à ce nom. */
+    private String barId(Bar bar) {
+        return key + ".bar." + bar.name;
+    }
+
+    /** Texte affiché : %temps% (temps restant), %joueur% (joueur concerné), %nom_du_compteur% (sa valeur). */
+    private String barText(Bar bar) {
+        String text = bar.text;
+        if (bar.until > 0) {
+            long left = Math.max(0L, (bar.until - System.currentTimeMillis() + 999L) / 1000L);
+            text = text.replace("%temps%", left >= 60 ? (left / 60) + "m " + String.format("%02d", left % 60) + "s" : left + "s");
+        } else {
+            text = text.replace("%temps%", "");
+        }
+        text = text.replace("%joueur%", bar.subject);
+        for (Map.Entry<String, Double> c : counters.entrySet()) text = text.replace("%" + c.getKey() + "%", format(c.getValue()));
+        return text.replaceAll("%[a-z][a-z0-9_]{0,15}%", "0"); // compteur jamais modifié : 0
+    }
+
+    private void showBar(Bar bar) {
+        GamePlayer gp = GamePlayer.of(bar.player);
+        if (gp != null) gp.getActionBarManager().addToActionBar(barId(bar), barText(bar));
+    }
+
+    private void hideBar(Bar bar) {
+        GamePlayer gp = GamePlayer.of(bar.player);
+        if (gp != null) gp.getActionBarManager().removeInActionBar(barId(bar));
+    }
+
+    /** Chaque seconde (et à chaque changement de compteur) : met à jour les affichages, retire ceux qui ont expiré. */
+    private void refreshBars() {
+        long now = System.currentTimeMillis();
+        for (Iterator<Bar> it = bars.values().iterator(); it.hasNext(); ) {
+            Bar bar = it.next();
+            if (bar.until > 0 && now >= bar.until) {
+                it.remove();
+                hideBar(bar);
+            } else {
+                showBar(bar);
+            }
+        }
     }
 
     private void showCounter(String name) {
@@ -572,8 +656,7 @@ public final class RuleEngine implements Listener {
         if (text == null || ownerId() == null) return;
         GamePlayer gp = GamePlayer.of(ownerId());
         if (text == null || gp == null) return;
-        double value = counter(name);
-        String shown = text + " " + (value == Math.rint(value) ? String.valueOf((long) value) : String.valueOf(value));
+        String shown = text + " " + format(counter(name));
         String id = key + "." + name;
         if (gp.getActionBarManager().containsKey(id)) gp.getActionBarManager().updateActionBar(id, shown);
         else gp.getActionBarManager().addToActionBar(id, shown);
