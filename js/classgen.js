@@ -191,7 +191,7 @@ const ClassGen = (function () {
     roles.forEach(function (r, i) {
       clinit = clinit.concat([0xbb], u2(thisC), [0x59], ldc(r.constant), [0x10, i],
         ldc(r.teamClass), ldc(r.teamConst), [0xb8], m(support, "team", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;"), [0xc0], u2(teamC),
-        ldc(r.mdj), [0x10, r.nmb],
+        ldc(r.mdj), [0x11].concat(u2(r.nmb)), // sipush : numéro jusqu'à 999 (100+ dans un mode d'UHC-Meetup)
         ldc(r.material), ldc(r.itemName), [0xb8], m(support, "item", "(Ljava/lang/String;Ljava/lang/String;)" + ITEM),
         ldc(r.gDesign),
         [0xb7], m(className, "<init>", initDesc), [0xb3], f(r.constant, SELF));

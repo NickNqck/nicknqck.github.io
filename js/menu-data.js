@@ -129,7 +129,8 @@ const MENU = {
       fields: [
         { type: "text", id: "name", label: "Nom du rôle", default: "", max: 24,
           pattern: "^[A-Za-z0-9\u00C0-\u00FF _'-]{1,24}$" },
-        { type: "mymdj", id: "mdj", label: "Mode de jeu", default: "" },
+        // mode de l'addon, ou mode d'UHC-Meetup (le rôle apparaît alors dans le menu des rôles de ce mode, dans son équipe)
+        { type: "rolemdj", id: "mdj", label: "Mode de jeu", default: "" },
         { type: "team", id: "team", label: "Équipe", default: "" },
         { type: "item", id: "item", label: "Objet dans les menus", default: "IRON_SWORD" },
 

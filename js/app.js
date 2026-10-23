@@ -113,6 +113,7 @@
       case "item": return ITEMS.some(function (i) { return i.id === v; }) ? v : undefined;
       case "color": return COLORS.some(function (c) { return c.code === v; }) ? v : undefined;
       case "mdj": return modeIds().indexOf(v) !== -1 ? v : undefined;
+      case "rolemdj": return modeIds().indexOf(v) !== -1 ? v : undefined; // modes de l'addon ou d'UHC-Meetup
       case "mymdj": return (state[MODES_ID] || []).some(function (m) { return normKey(m.name) === v; }) ? v : undefined;
       case "team": return teamOptions().some(function (t) { return t.id === v; }) ? v : undefined;
       case "mycommand": return (state[COMMANDS_ID] || []).some(function (c) { return c.name === v; }) ? v : undefined;
@@ -280,15 +281,27 @@
     return (state[TEAMS_ID] || []).map(function (t) {
       return { id: "addon:" + constName(t.name), name: t.name, code: t.color, mdj: t.mdj, source: "addon" };
     }).concat(MEETUP_TEAMS.map(function (t) {
-      return { id: "meetup:" + t.id, name: t.name, code: t.code, mdj: t.mdj, source: "uhc" };
+      return { id: "meetup:" + t.id, name: t.name, code: t.code, mdj: t.mdj, menus: t.menus || [], source: "uhc" };
     }));
   }
   function teamOf(id) { return teamOptions().find(function (t) { return t.id === id; }); }
   function teamLabel(id) { const t = teamOf(id); return t ? t.name : id; }
   // Une équipe n'est utilisable que dans son propre mode de jeu (ou "all" = tous)
+  const isMeetupMode = function (mdj) { return MEETUP_MODES.some(function (m) { return m.id === mdj; }); };
+  // équipe utilisable par un rôle de ce mode : dans un mode d'UHC-Meetup, seulement les équipes qui ont une page dans
+  // son menu des rôles (sinon le rôle serait introuvable en jeu) ; dans un mode de l'addon, celles du mode ou « tous »
+  function teamFits(t, mdj) {
+    if (!t || !mdj) return true;
+    if (isMeetupMode(mdj)) return t.source === "uhc" && (t.menus || []).indexOf(mdj) !== -1;
+    return t.mdj === "all" || t.mdj === mdj;
+  }
   function roleProblem(r) {
     const t = teamOf(r.team);
-    if (!t || !r.mdj || t.mdj === "all" || t.mdj === r.mdj) return "";
+    if (!t || !r.mdj || teamFits(t, r.mdj)) return "";
+    if (isMeetupMode(r.mdj)) {
+      const ok = teamOptions().filter(function (x) { return teamFits(x, r.mdj); }).map(function (x) { return x.name; });
+      return "Dans le mode « " + modeLabel(r.mdj) + " » d'UHC-Meetup, un rôle doit être dans l'une de ses équipes : " + ok.join(", ") + ".";
+    }
     return "L'équipe « " + t.name + " » appartient au mode « " + modeLabel(t.mdj) + " » : choisis une équipe de ton mode ou « Solo ».";
   }
   // nmb = numéro du rôle dans son équipe, dans l'ordre de création : 0, 1, 2... (comme ZRoles)
@@ -296,7 +309,8 @@
     const next = Object.create(null);
     (state[ROLES_ID] || []).forEach(function (r) {
       const k = r.mdj + "|" + r.team;
-      r.nmb = next[k] || 0;
+      // dans un mode d'UHC-Meetup, les rôles de l'addon se rangent après les siens (menu trié par numéro)
+      r.nmb = next[k] || (isMeetupMode(r.mdj) ? 100 : 0);
       next[k] = r.nmb + 1;
     });
   }
@@ -350,7 +364,7 @@
       if (t) { seen[id] = true; out.push(t); }
     };
     (state[TEAMS_ID] || []).filter(function (t) { return t.mdj === mode; }).forEach(function (t) { add("addon:" + constName(t.name)); });
-    MEETUP_TEAMS.filter(function (t) { return t.mdj === "all"; }).forEach(function (t) { add("meetup:" + t.id); });
+    MEETUP_TEAMS.filter(function (t) { return t.mdj === "all" || (t.menus || []).indexOf(mode) !== -1; }).forEach(function (t) { add("meetup:" + t.id); });
     (state[ROLES_ID] || []).filter(function (r) { return r.mdj === mode; }).forEach(function (r) { add(r.team); });
     if (editing && editing.draft && editing.draft.team) add(editing.draft.team);
     return out;
@@ -629,7 +643,7 @@
         b.style.background = col.hex; b.title = col.name; b.setAttribute("aria-label", col.name);
         input.appendChild(b);
       });
-    } else if (it.type === "mdj" || it.type === "mymdj" || it.type === "team") {
+    } else if (it.type === "mdj" || it.type === "mymdj" || it.type === "rolemdj" || it.type === "team") {
       input = el("button", "pick");
       input.type = "button";
       input.textContent = obj[it.id] ? pickLabel(it.type, obj[it.id]) : "Choisir…";
@@ -1010,13 +1024,14 @@
     menu.appendChild(el("p", "hint", isTeam
       ? "Équipes créées dans cet addon et équipes déjà présentes dans UHC-Meetup. Celles d'un autre mode de jeu sont grisées. Fais défiler la liste."
       : f.type === "mymdj" ? "Uniquement les modes de jeu créés dans cet addon. Fais défiler la liste."
+      : f.type === "rolemdj" ? "Un mode de cet addon, ou un mode déjà présent dans UHC-Meetup : le rôle apparaît alors dans le menu des rôles de ce mode, dans la page de son équipe."
       : "Modes créés dans cet addon et modes déjà présents dans UHC-Meetup. Fais défiler la liste."));
     const options = isTeam ? teamOptions()
       : allModes().filter(function (m) { return f.type !== "mymdj" || m.source === "addon"; });
     const scroll = el("div", "scroll");
     if (!options.length) scroll.appendChild(el("p", "hint", "Aucun mode de jeu pour l'instant : crée-en un dans « Modes de jeu »."));
     options.forEach(function (o) {
-      const off = isTeam && ed.draft.mdj && o.mdj !== "all" && o.mdj !== ed.draft.mdj;
+      const off = isTeam && ed.draft.mdj && !teamFits(o, ed.draft.mdj);
       const b = button("modeopt" + (ed.draft[ed.pick] === o.id ? " on" : "") + (off ? " off" : ""), "", function () {
         ed.draft[ed.pick] = o.id; ed.pick = null; render();
       });
@@ -1131,7 +1146,7 @@
   }
   function fieldText(f, v) {
     if (f.type === "item") { const i = ITEMS.find(function (x) { return x.id === v; }); return i ? i.name : v; }
-    if (f.type === "mdj" || f.type === "mymdj") return modeLabel(v);
+    if (f.type === "mdj" || f.type === "mymdj" || f.type === "rolemdj") return modeLabel(v);
     if (f.type === "effectlist") return (v || []).length + " effet(s)";
     if (f.type === "rules") return (v || []).length + " règle(s)";
     if (f.type === "targetlist") return (v || []).length + " action(s) sur la cible";

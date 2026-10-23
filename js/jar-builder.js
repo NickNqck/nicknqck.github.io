@@ -97,7 +97,7 @@ const JarBuilder = (function () {
       }
       if (!/^[a-z0-9]+$/.test(r.mdj)) throw new Error("Mode de jeu invalide pour le rôle " + r.name);
       if (!/^[A-Z0-9_]+$/.test(r.item)) throw new Error("Objet invalide pour le rôle " + r.name);
-      if (!Number.isInteger(r.nmb) || r.nmb < 0 || r.nmb > 120) throw new Error("Numéro invalide pour le rôle " + r.name);
+      if (!Number.isInteger(r.nmb) || r.nmb < 0 || r.nmb > 999) throw new Error("Numéro invalide pour le rôle " + r.name);
       const noFall = r.noFall === undefined ? "NONE" : r.noFall;
       if (["NONE", "PERMANENT", "DAY", "NIGHT"].indexOf(noFall) === -1) throw new Error("NoFall invalide pour le rôle " + r.name);
       // résurrection une fois par partie : cœurs max perdus et rayon de réapparition
