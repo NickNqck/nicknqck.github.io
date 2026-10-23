@@ -114,7 +114,7 @@ const PowerDescriber = (function () {
     const names = { role: keyName(typeof MEETUP_ROLES === "undefined" ? [] : MEETUP_ROLES),
       team: keyName(typeof MEETUP_TEAMS === "undefined" ? [] : MEETUP_TEAMS),
       effect: function (v) { return potions[v] || v; } };
-    const SILENT = ["SHOW_COUNTER", "MESSAGE", "BAR_SHOW", "BAR_HIDE"]; // rien à expliquer au joueur
+    const SILENT = ["SHOW_COUNTER", "MESSAGE", "BAR_SHOW", "BAR_HIDE", "MARK", "UNMARK"]; // rien à expliquer au joueur
     function nodes(list) {
       return (list || []).map(function (n) {
         const spec = RULES.ACTIONS[n.a];

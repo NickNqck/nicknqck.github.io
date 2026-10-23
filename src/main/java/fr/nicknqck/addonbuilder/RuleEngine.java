@@ -63,6 +63,8 @@ public final class RuleEngine implements Listener {
     private final List<Map<String, Object>> rules = new ArrayList<>();
     private final Map<String, Double> counters = new HashMap<>();
     private final Map<String, String> shownCounters = new HashMap<>(); // compteur -> texte avant la valeur
+    /** Joueurs marqués (MARK) : nom de la marque -> joueur -> fin (ms). */
+    private final Map<String, Map<UUID, Long>> marks = new HashMap<>();
     /** Affichages de la barre d'action (ActionBarManager du GamePlayer) : "joueur#nom" -> affichage, mis à jour chaque seconde. */
     private final Map<String, Bar> bars = new LinkedHashMap<>();
 
@@ -159,7 +161,26 @@ public final class RuleEngine implements Listener {
 
     @EventHandler
     public void onGapple(GamePlayerEatGappleEvent event) {
-        if (event.getGamePlayer() != null && event.getGamePlayer().getUuid().equals(ownerId())) fire("GAPPLE", null, null);
+        if (event.getGamePlayer() == null) return;
+        if (event.getGamePlayer().getUuid().equals(ownerId())) {
+            fire("GAPPLE", null, null);
+        } else { // « quand un autre joueur mange une pomme d'or » : ce joueur est le joueur concerné
+            Player eater = Bukkit.getPlayer(event.getGamePlayer().getUuid());
+            if (eater != null) fire("GAPPLE_OTHER", eater, eater.getLocation());
+        }
+    }
+
+    /** « quand je frappe un joueur avec une flèche » (ou tout autre projectile que j'ai lancé). */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onProjectile(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
+        if (event.isCancelled() || !(event.getEntity() instanceof Player) || !(event.getDamager() instanceof org.bukkit.entity.Projectile)) return;
+        Object shooter = ((org.bukkit.entity.Projectile) event.getDamager()).getShooter();
+        if (!(shooter instanceof Player) || !((Player) shooter).getUniqueId().equals(ownerId())) return;
+        Player victim = (Player) event.getEntity();
+        for (int i = 0; i < rules.size(); i++) {
+            Map<String, Object> rule = rules.get(i);
+            if ("HIT_GIVEN".equals(rule.get("on")) && "ARROW".equals(str(params(rule), "with"))) run(i, victim, victim.getLocation());
+        }
     }
 
     @EventHandler
@@ -176,6 +197,7 @@ public final class RuleEngine implements Listener {
                 Object on = rule.get("on");
                 if ("HIT_GIVEN".equals(on)) {
                     String with = str(params(rule), "with");
+                    if ("ARROW".equals(with)) continue; // les flèches passent par onProjectile
                     if ("SWORD".equals(with) && (hand == null || !hand.getType().name().contains("SWORD"))) continue;
                     if ("ITEM".equals(with) && (!(power instanceof ItemPower) || hand == null || !hand.isSimilar(((ItemPower) power).getItem()))) continue;
                     run(i, victim, victim.getLocation());
@@ -523,6 +545,48 @@ public final class RuleEngine implements Listener {
                 target.setVelocity(v);
                 return;
             }
+            case "LOOK": { // fait regarder le ciel ou le sol
+                Location look = target.getLocation().clone();
+                look.setPitch("UP".equals(str(p, "dir")) ? -90f : 90f);
+                target.teleport(look);
+                return;
+            }
+            case "MARK": { // marque le joueur pendant N s (condition « le joueur concerné est marqué »)
+                Map<UUID, Long> marked = marks.get(str(p, "name"));
+                if (marked == null) marks.put(str(p, "name"), marked = new HashMap<>());
+                marked.put(target.getUniqueId(), System.currentTimeMillis() + num(p, "s") * 1000L);
+                return;
+            }
+            case "UNMARK": {
+                Map<UUID, Long> marked = marks.get(str(p, "name"));
+                if (marked != null) marked.remove(target.getUniqueId());
+                return;
+            }
+            case "ABSORB": { // cœurs d'absorption : en ajouter ou les fixer (EntityHuman.setAbsorptionHearts, par réflexion)
+                try {
+                    Object handle = target.getClass().getMethod("getHandle").invoke(target);
+                    float current = (Float) handle.getClass().getMethod("getAbsorptionHearts").invoke(handle);
+                    float value = (float) (dbl(p, "hearts") * 2.0);
+                    handle.getClass().getMethod("setAbsorptionHearts", float.class).invoke(handle, "SET".equals(str(p, "mode")) ? value : current + value);
+                } catch (Exception e) {
+                    Bukkit.getLogger().severe("[UHC-Addon] Absorption impossible : " + e);
+                }
+                return;
+            }
+            case "GIVE_ITEM": {
+                org.bukkit.Material material = org.bukkit.Material.matchMaterial(str(p, "item"));
+                if (material == null) return;
+                ItemStack stack = new ItemStack(material);
+                org.bukkit.inventory.meta.ItemMeta meta = stack.getItemMeta();
+                if (meta != null) {
+                    meta.setDisplayName(color(str(p, "text")));
+                    stack.setItemMeta(meta);
+                }
+                int sharp = num(p, "sharp");
+                if (sharp > 0) stack.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.DAMAGE_ALL, sharp);
+                for (ItemStack rest : target.getInventory().addItem(stack).values()) target.getWorld().dropItem(target.getLocation(), rest);
+                return;
+            }
             case "BRING": { // téléporte le joueur visé devant / autour de / sur moi
                 String how = str(p, "how");
                 Location to = "FRONT".equals(how) ? TeleportSupport.inFrontOf(ctx.owner)
@@ -601,6 +665,17 @@ public final class RuleEngine implements Listener {
         switch (str(c, "k")) {
             case "S_ROLE":
                 return ctx.subject != null && roleIs(roleOf(ctx.subject), str(p, "role"));
+            case "S_MARKED": {
+                Map<UUID, Long> marked = marks.get(str(p, "name"));
+                Long until = ctx.subject == null || marked == null ? null : marked.get(ctx.subject.getUniqueId());
+                return until != null && System.currentTimeMillis() <= until;
+            }
+            case "ON_FIRE":
+                return ctx.owner.getFireTicks() > 0;
+            case "IN_FIRE": {
+                String feet = ctx.owner.getLocation().getBlock().getType().name(), eyes = ctx.owner.getEyeLocation().getBlock().getType().name();
+                return feet.contains("LAVA") || feet.contains("FIRE") || eyes.contains("LAVA") || eyes.contains("FIRE");
+            }
             case "IN_WATER": {
                 String block = ctx.owner.getLocation().getBlock().getType().name();
                 return block.contains("WATER");
