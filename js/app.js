@@ -43,7 +43,7 @@
     return;
   }
 
-  const MAX_IMPORT_BYTES = 100 * 1024; // un .json plus gros est refusé
+  const MAX_IMPORT_BYTES = 4 * 1024 * 1024; // un .json plus gros est refusé (60 rôles x 10 pouvoirs tiennent largement)
   const FORMAT = "uhc-meetup-addon";
 
   // Objets sans prototype : protège contre les clés piégées comme "__proto__"
@@ -1429,7 +1429,7 @@
     const file = e.target.files[0];
     e.target.value = ""; // permet de réimporter le même fichier
     if (!file) return;
-    if (file.size > MAX_IMPORT_BYTES) return say("Fichier trop volumineux (100 Ko maximum).", true);
+    if (file.size > MAX_IMPORT_BYTES) return say("Fichier trop volumineux (4 Mo maximum).", true);
     const reader = new FileReader();
     reader.onload = function () {
       let data;
