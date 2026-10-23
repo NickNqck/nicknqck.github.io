@@ -18,6 +18,35 @@ const JarBuilder = (function () {
   const SUPPORT = "fr/nicknqck/addonbuilder/RoleSupport";
   const ROLE_PACKAGE = "fr/nicknqck/addonbuilder/roles/";
   const POWER_PACKAGE = "fr/nicknqck/addonbuilder/powers/";
+  // Package du modèle : tout est généré dedans, puis déplacé dans le package de l'addon (packageOf) au moment d'assembler
+  const TEMPLATE_PACKAGE = "fr.nicknqck.addonbuilder";
+  // sous-packages d'UHC-Meetup (fr.nicknqck.*) : un addon de NickNqck ne doit jamais se placer dedans
+  const MEETUP_PACKAGES = ["commands", "config", "entity", "enums", "events", "interfaces", "invs", "items", "managers", "player",
+    "rdmevents", "roles", "runnables", "scenarios", "scoreboard", "titans", "utils", "worlds", "nicknqck"];
+  const JAVA_KEYWORDS = ("abstract assert boolean break byte case catch char class const continue default do double else enum extends " +
+    "final finally float for goto if implements import instanceof int interface long native new package private protected public " +
+    "return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null").split(" ");
+
+  // "Mon-Projet" -> "mon_projet" : un segment de package Java valide (minuscules, chiffres, _)
+  function segment(text) {
+    let s = String(text).toLowerCase().replace(/-/g, "_").replace(/[^a-z0-9_]/g, "");
+    if (!s) s = "addon";
+    if (/^[0-9]/.test(s)) s = "_" + s;
+    if (JAVA_KEYWORDS.indexOf(s) !== -1) s += "_";
+    return s;
+  }
+
+  /** Package de l'addon : fr.<pseudo>.<nom du projet> (ex. fr.nicknqck.zelda). */
+  function packageOf(settings) {
+    const author = segment(settings.author);
+    let project = segment(settings.addonName);
+    if (author === "nicknqck" && MEETUP_PACKAGES.indexOf(project) !== -1) project += "_addon"; // pas dans les packages d'UHC-Meetup
+    return "fr." + author + "." + project;
+  }
+  // déplace un texte (plugin.yml, code source) du package du modèle vers celui de l'addon
+  const moveText = function (text, pkg) {
+    return text.split(TEMPLATE_PACKAGE.replace(/\./g, "/")).join(pkg.replace(/\./g, "/")).split(TEMPLATE_PACKAGE).join(pkg);
+  };
   const WHEN = ["PERMANENT", "DAY", "NIGHT", "AT_KILL", "MID_LIFE"];
 
   // Nom de constante d'enum tiré du nom affiché : "Skull Kid" -> "Skull_Kid" (ASCII, identifiant Java valide)
@@ -452,6 +481,28 @@ const JarBuilder = (function () {
       });
 
     }).then(function () {
+      return run(onStep, "Package de l'addon", function () {
+        const pkg = packageOf(s), from = TEMPLATE_PACKAGE.replace(/\./g, "/") + "/", to = pkg.replace(/\./g, "/") + "/";
+        if (pkg === TEMPLATE_PACKAGE) return pkg;
+        const names = Object.keys(ctx.zip.files).filter(function (f) { return !ctx.zip.files[f].dir; });
+        const moved = names.filter(function (f) { return f.indexOf(from) === 0 && /\.class$/.test(f); });
+        return Promise.all(names.filter(function (f) { return /\.class$/.test(f) || f === "plugin.yml"; }).map(function (f) {
+          if (f === "plugin.yml") return ctx.zip.file(f).async("string").then(function (t) { ctx.zip.file(f, moveText(t, pkg)); });
+          return ctx.zip.file(f).async("uint8array").then(function (bytes) {
+            const out = ClassGen.relocate(bytes, TEMPLATE_PACKAGE, pkg);
+            if (f.indexOf(from) === 0) { ctx.zip.remove(f); ctx.zip.file(to + f.slice(from.length), out, { binary: true }); }
+            else ctx.zip.file(f, out, { binary: true });
+          });
+        })).then(function () {
+          // anciens dossiers vides du modèle (si le nouveau package n'est pas dedans)
+          if (to.indexOf(from) !== 0) Object.keys(ctx.zip.files).forEach(function (f) {
+            if (ctx.zip.files[f] && ctx.zip.files[f].dir && f.indexOf(from) === 0) ctx.zip.remove(f);
+          });
+          return pkg + " (" + moved.length + " classes déplacées)";
+        });
+      });
+
+    }).then(function () {
       return run(onStep, "Assemblage du .jar", function () {
         return ctx.zip.generateAsync({ type: "blob", compression: "DEFLATE", mimeType: "application/java-archive" },
           function (meta) { onStep({ label: "Assemblage du .jar", state: "progress", detail: Math.round(meta.percent) + " %" }); })
@@ -467,7 +518,7 @@ const JarBuilder = (function () {
 
   // ---------- Projet pour IDE (IntelliJ IDEA, Eclipse...) : le même addon, en code source Java + Gradle ----------
 
-  function gradleFiles(name) {
+  function gradleFiles(name, pkg) {
     const build = [
       "// Projet généré par le Créateur d'addon UHC-Meetup.",
       "// Place ton jar UHC-Meetup et ton spigot.jar (1.8.8) dans le dossier libs/ : tous les .jar de libs/ servent à compiler.",
@@ -475,7 +526,7 @@ const JarBuilder = (function () {
       "    id 'java'",
       "}",
       "",
-      "group = 'fr.nicknqck.addonbuilder'",
+      "group = '" + pkg + "'",
       "version = '1.0'",
       "",
       "java {",
@@ -515,7 +566,7 @@ const JarBuilder = (function () {
       "",
       "## Où est quoi",
       "",
-      "- `src/main/java/fr/nicknqck/addonbuilder/` : le code commun de l'addon (Main, menus, pouvoirs...).",
+      "- `src/main/java/" + pkg.replace(/\./g, "/") + "/` : le code commun de l'addon (Main, menus, pouvoirs...).",
       "- `AddonTeams.java`, `AddonRoles.java` : tes équipes et tes rôles.",
       "- `roles/` : une classe par rôle ; `powers/` : une classe par pouvoir.",
       "- `src/main/resources/plugin.yml` : nom, auteur et commandes ; `addon-config.json` : tes réglages.",
@@ -599,9 +650,21 @@ const JarBuilder = (function () {
 
     }).then(function () {
       return run(onStep, "Fichiers Gradle et mode d'emploi", function () {
-        const g = gradleFiles(s.addonName);
+        const g = gradleFiles(s.addonName, packageOf(s));
         Object.keys(g).forEach(function (path) { ctx.files[path] = g[path]; });
         return Object.keys(g).join(", ");
+      });
+
+    }).then(function () {
+      return run(onStep, "Package de l'addon", function () {
+        const pkg = packageOf(s), from = JAVA, to = "src/main/java/" + pkg.replace(/\./g, "/") + "/";
+        const files = {};
+        Object.keys(ctx.files).forEach(function (path) {
+          const text = /\.(java|yml)$/.test(path) ? moveText(ctx.files[path], pkg) : ctx.files[path];
+          files[path.indexOf(from) === 0 ? to + path.slice(from.length) : path] = text;
+        });
+        ctx.files = files;
+        return pkg;
       });
 
     }).then(function () {
@@ -620,5 +683,5 @@ const JarBuilder = (function () {
     });
   }
 
-  return { build: build, buildProject: buildProject, constName: constName, commandsYaml: commandsYaml };
+  return { build: build, buildProject: buildProject, constName: constName, commandsYaml: commandsYaml, packageOf: packageOf };
 })();

@@ -39,7 +39,7 @@ Trois façons de le fournir :
       commands-data.js  règles des commandes personnalisées (format, noms déjà pris par UHC-Meetup / Minecraft)
       classgen.js       génère les classes Java (enums d'équipes et de rôles, rôles, pouvoirs)
       javagen.js        même chose en code source Java (bouton « Projet IntelliJ » du récapitulatif)
-      jar-builder.js    assemble le .jar dans le navigateur
+      jar-builder.js    assemble le .jar dans le navigateur (classes déplacées dans le package fr.<pseudo>.<projet>)
       spigot-check.js   vérifie (dans le navigateur) que le jar fourni est bien un spigot.jar 1.8.8
       template-jar.js   jar modèle précompilé (généré, ne pas modifier à la main)
       template-sources.js   code source du jar modèle (généré avec template-jar.js, ne pas modifier à la main)

@@ -362,5 +362,55 @@ const ClassGen = (function () {
     return new Uint8Array(all);
   }
 
-  return { teamsEnum: teamsEnum, rolesEnum: rolesEnum, roleClass: roleClass, powerClass: powerClass, mutf8: mutf8 };
+  // lecture du "Modified UTF-8" (inverse de mutf8)
+  function unmutf8(b, from, len) {
+    let s = "";
+    for (let i = from, end = from + len; i < end;) {
+      const c = b[i];
+      if (c < 0x80) { s += String.fromCharCode(c); i += 1; }
+      else if ((c & 0xe0) === 0xc0) { s += String.fromCharCode(((c & 0x1f) << 6) | (b[i + 1] & 0x3f)); i += 2; }
+      else { s += String.fromCharCode(((c & 0x0f) << 12) | ((b[i + 1] & 0x3f) << 6) | (b[i + 2] & 0x3f)); i += 3; }
+    }
+    return s;
+  }
+
+  /**
+   * Change le package d'une classe compilée (comme le « relocate » de Shadow) : chaque texte de la table des constantes
+   * (noms de classes, descripteurs, signatures, textes du code) voit `from` remplacé par `to`, sous ses deux formes
+   * ("fr/a/b" et "fr.a.b"). Le reste du fichier est recopié tel quel : seules les entrées texte changent de taille.
+   */
+  function relocate(bytes, from, to) {
+    const b = bytes, out = [];
+    const fromSlash = from.replace(/\./g, "/"), toSlash = to.replace(/\./g, "/");
+    if (b[0] !== 0xca || b[1] !== 0xfe || b[2] !== 0xba || b[3] !== 0xbe) throw new Error("Fichier .class invalide.");
+    for (let i = 0; i < 8; i++) out.push(b[i]);
+    const count = (b[8] << 8) | b[9];
+    out.push(b[8], b[9]);
+    let pos = 10;
+    for (let n = 1; n < count; n++) {
+      const tag = b[pos];
+      if (tag === 1) {
+        const len = (b[pos + 1] << 8) | b[pos + 2];
+        const text = unmutf8(b, pos + 3, len);
+        const moved = text.split(fromSlash).join(toSlash).split(from).join(to);
+        const enc = moved === text ? Array.prototype.slice.call(b, pos + 3, pos + 3 + len) : mutf8(moved);
+        if (enc.length > 65535) throw new Error("Texte trop long après le changement de package.");
+        out.push(1, (enc.length >> 8) & 255, enc.length & 255);
+        for (let k = 0; k < enc.length; k++) out.push(enc[k]);
+        pos += 3 + len;
+        continue;
+      }
+      const size = { 3: 5, 4: 5, 5: 9, 6: 9, 7: 3, 8: 3, 9: 5, 10: 5, 11: 5, 12: 5, 15: 4, 16: 3, 17: 5, 18: 5, 19: 3, 20: 3 }[tag];
+      if (!size) throw new Error("Entrée inconnue dans la table des constantes (" + tag + ").");
+      for (let k = 0; k < size; k++) out.push(b[pos + k]);
+      pos += size;
+      if (tag === 5 || tag === 6) n++; // long et double occupent deux places
+    }
+    const result = new Uint8Array(out.length + (b.length - pos));
+    result.set(out, 0);
+    result.set(b.subarray ? b.subarray(pos) : b.slice(pos), out.length);
+    return result;
+  }
+
+  return { teamsEnum: teamsEnum, rolesEnum: rolesEnum, roleClass: roleClass, powerClass: powerClass, mutf8: mutf8, relocate: relocate };
 })();

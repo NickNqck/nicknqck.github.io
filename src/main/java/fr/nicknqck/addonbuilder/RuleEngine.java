@@ -521,13 +521,13 @@ public final class RuleEngine implements Listener {
         if (role == null || key == null) return false;
         IRoles<?> roles = role.getRoles();
         if (roles == null) return false;
-        boolean addon = roles.getClass().getName().startsWith("fr.nicknqck.addonbuilder");
+        boolean addon = roles.getClass().getName().startsWith("fr.nicknqck.addonbuilder.");
         return key.equals((addon ? "addon:" : "meetup:") + roles.name());
     }
 
     static boolean teamIs(ITeam team, String key) {
         if (team == null || key == null) return false;
-        boolean addon = team.getClass().getName().startsWith("fr.nicknqck.addonbuilder");
+        boolean addon = team.getClass().getName().startsWith("fr.nicknqck.addonbuilder.");
         return key.equals((addon ? "addon:" : "meetup:") + team.name());
     }
 

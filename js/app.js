@@ -1161,7 +1161,10 @@
       r.appendChild(document.createTextNode(" : " + value));
       return r;
     }
-    section("Projet", [line("Pseudo", state.author || "—"), line("Nom du projet", state.addonName || "—")]);
+    const pkg = state.author && state.addonName && has(function () { return JarBuilder; })
+      ? JarBuilder.packageOf({ author: state.author, addonName: state.addonName }) : "—";
+    section("Projet", [line("Pseudo", state.author || "—"), line("Nom du projet", state.addonName || "—"),
+      line("Package Java", pkg)]);
     collectionsOf(MENU).forEach(function (col) {
       section(col.label + " (" + state[col.id].length + "/" + col.max + ")", state[col.id].map(function (e) {
         const r = el("div", "sumrow");
