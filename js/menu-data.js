@@ -216,6 +216,8 @@ const MENU = {
 
             // Programme en blocs : la seule façon de régler ce que fait le pouvoir (tous les champs inBlocks ci-dessous)
             { type: "itemblocks", id: "blocks", label: "Programme du pouvoir" },
+            // Règles « quand … » (js/rules-data.js) : s'ajoutent à n'importe quel pouvoir (kill, mort d'un rôle, nuit, coups...)
+            { type: "rules", id: "rules", label: "Règles", default: [], optional: true, inBlocks: true },
 
             // --- Passifs : blocage d'effets / de pouvoirs, information ---
             { type: "number", id: "radius", label: "Rayon d'action (blocs)", default: 15, min: 1, max: 100, step: 1, inBlocks: true,

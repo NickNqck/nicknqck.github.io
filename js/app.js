@@ -15,6 +15,8 @@
     ["js/effects-data.js", has(function () { return POTION_LABELS; }) && has(function () { return PROTECTED_EFFECTS; }) && has(function () { return ENCHANT_LABELS; }) && has(function () { return TARGET_ACTIONS; })],
     ["js/meetup-teams.js", has(function () { return MEETUP_TEAMS; })],
     ["js/commands-data.js", has(function () { return commandProblem; }) && has(function () { return COMMAND_PATTERN; })],
+    ["js/meetup-roles.js", has(function () { return MEETUP_ROLES; })],
+    ["js/rules-data.js", has(function () { return RULES; })],
     ["js/blocks.js", has(function () { return BlockEditor; })],
     ["js/describe.js", has(function () { return PowerDescriber; })],
     ["js/menu-data.js", has(function () { return MENU; })],
@@ -96,6 +98,7 @@
   }
 
   // Valide une valeur (saisie ou importée). Retourne la valeur propre, ou undefined si invalide.
+  let rulesError = ""; // dernier problème trouvé dans les règles d'un pouvoir (message affiché à la validation)
   function clean(it, v, rec) { // rec = élément en cours de construction (pour les champs qui dépendent des autres)
     switch (it.type) {
       case "toggle": return typeof v === "boolean" ? v : undefined;
@@ -160,6 +163,12 @@
           out.push({ enchant: e.enchant, level: e.level });
         }
         return out;
+      }
+      case "rules": { // règles « quand … » d'un pouvoir (js/rules-data.js). Rôles et camps : seul leur format est vérifié
+        // ici (un rôle renommé ou supprimé ne doit pas faire perdre le .json) ; le .jar vérifie qu'ils existent.
+        const r = RULES.clean(v, { roles: null, teams: null, potions: POTION_LABELS, mcText: MC_TEXT, isItem: !!rec && rec.kind === "ITEM" });
+        rulesError = r.error || "";
+        return r.error ? undefined : r.rules;
       }
       case "targetlist": { // actions sur la cible : [{ type, amount, flag }], chaque type une seule fois (TARGET_ACTIONS)
         if (v === undefined) return [];
@@ -439,7 +448,15 @@
         teams: (mode ? modeTeams(mode) : []).map(function (t) { return { id: t.id, name: t.name }; }),
         teamName: teamLabel,
         enchants: ENCHANT_LABELS, maxEnchants: MAX_ITEM_ENCHANTS,
-        potions: POTION_LABELS, colors: COLORS
+        potions: POTION_LABELS, colors: COLORS,
+        // règles : rôles d'UHC-Meetup et de l'addon, tous les camps, texte Minecraft autorisé
+        roles: MEETUP_ROLES.map(function (r) {
+          const twin = MEETUP_ROLES.some(function (x) { return x !== r && x.name === r.name; }); // ex. deux « Kaigaku » : on précise
+          return { id: "meetup:" + r.id, name: r.name + (twin ? " (" + r.id + ")" : ""), group: "UHC-Meetup (" + modeLabel(r.mdj) + ")" };
+        })
+          .concat((state[ROLES_ID] || []).map(function (r) { return { id: "addon:" + constName(r.name), name: r.name, group: "Mon addon" }; })),
+        allTeams: teamOptions().map(function (t) { return { id: t.id, name: t.name, group: t.source === "addon" ? "Mon addon" : "UHC-Meetup" }; }),
+        mcText: MC_TEXT
       });
     }
     if (it.type === "list") return listControl(it, obj);
@@ -1052,7 +1069,7 @@
         const raw = sub.draft[x.id] === undefined && x.optional ? copyDefault(x) : sub.draft[x.id];
         const v = clean(x, raw, out);
         if (v === undefined) {
-          err.textContent = x.invalidMessage || (x.inBlocks
+          err.textContent = (x.type === "rules" && rulesError ? "Règles : " + rulesError : "") || x.invalidMessage || (x.inBlocks
             ? "Un bloc du programme a une valeur invalide (« " + x.label + " ») : corrige les cases en rouge."
             : "Valeur invalide ou manquante : " + x.label + ".");
           return;
@@ -1116,6 +1133,7 @@
     if (f.type === "item") { const i = ITEMS.find(function (x) { return x.id === v; }); return i ? i.name : v; }
     if (f.type === "mdj" || f.type === "mymdj") return modeLabel(v);
     if (f.type === "effectlist") return (v || []).length + " effet(s)";
+    if (f.type === "rules") return (v || []).length + " règle(s)";
     if (f.type === "targetlist") return (v || []).length + " action(s) sur la cible";
     if (f.type === "enchantlist") return (v || []).map(function (e) { return ENCHANT_LABELS[e.enchant] + " " + e.level; }).join(", ") || "aucun";
     if (f.type === "multiselect") return (v || []).map(function (x) { return f.labels && f.labels[x] ? f.labels[x] : x; }).join(", ");

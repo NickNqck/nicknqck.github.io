@@ -342,6 +342,9 @@ const ClassGen = (function () {
         c = c.concat([0x2a, 0x13], u2(P.str(spec.kind)), [0x10, spec.radius, 0x13], u2(P.str(spec.param || "")),
           [0xb8], m(SUPPORT, "passive", "(Ljava/lang/Object;Ljava/lang/String;ILjava/lang/String;)V"));
       }
+      if (spec.rules) { // RoleSupport.rules(this, "[règles en JSON]") (voir RuleEngine)
+        c = c.concat([0x2a, 0x13], u2(P.str(spec.rules)), [0xb8], m(SUPPORT, "rules", "(Ljava/lang/Object;Ljava/lang/String;)V"));
+      }
       c.push(0xb1);
       return c;
     })());

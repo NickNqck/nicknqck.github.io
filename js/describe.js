@@ -103,6 +103,42 @@ const PowerDescriber = (function () {
     }
   }
 
+  // règles « quand … » : une phrase par règle (« Quand je tue un joueur : … »), les blocs dans l'ordre
+  function ruleSentences(rules, potions) {
+    const keyName = function (list) {
+      return function (k) {
+        const id = String(k || "").replace(/^\w+:/, ""), x = String(k).indexOf("meetup:") === 0 && list.find(function (r) { return r.id === id; });
+        return x ? x.name : id.replace(/_/g, " ");
+      };
+    };
+    const names = { role: keyName(typeof MEETUP_ROLES === "undefined" ? [] : MEETUP_ROLES),
+      team: keyName(typeof MEETUP_TEAMS === "undefined" ? [] : MEETUP_TEAMS),
+      effect: function (v) { return potions[v] || v; } };
+    const SILENT = ["SHOW_COUNTER", "MESSAGE"]; // rien à expliquer au joueur
+    function nodes(list) {
+      return (list || []).map(function (n) {
+        const spec = RULES.ACTIONS[n.a];
+        if (!spec || SILENT.indexOf(n.a) !== -1) return "";
+        if (n.a === "IF") {
+          const c = n.c && RULES.CONDITIONS[n.c.k];
+          const yes = nodes(n.do), no = nodes(n.else);
+          return c && (yes || no) ? "si " + RULES.fill(c, n.c.p, names) + ", " + (yes || "rien") + (no ? ", sinon " + no : "") : "";
+        }
+        if (n.a === "DURING") { const each = nodes(n.do), end = nodes(n.end); return "pendant " + n.p.s + " s : " + (each || "rien") + (end ? ", puis " + end : ""); }
+        if (n.a === "WAIT") { const then = nodes(n.do); return then ? n.p.s + " s plus tard, " + then : ""; }
+        return RULES.fill(spec, n.p, names).replace(/ \(0 = toujours\)| \(négatif pour retirer\)/, "").replace(/ pendant 0 s$/, "");
+      }).filter(Boolean).join("&7, ");
+    }
+    return (rules || []).map(function (r) {
+      const spec = RULES.TRIGGERS[r.on];
+      const body = nodes(r.do);
+      if (!spec || !body) return "";
+      names.subject = spec.subject;
+      const when = RULES.fill(spec, r.p, names);
+      return "&e" + when.charAt(0).toUpperCase() + when.slice(1) + "&7 : " + nodes(r.do) + (r.cd > 0 ? " (cooldown " + r.cd + " s)" : "") + ".";
+    }).filter(Boolean);
+  }
+
   // retire les codes de couleur inutiles (un code suivi immédiatement d'un autre)
   const tidy = function (text) {
     let current = "";
@@ -133,9 +169,10 @@ const PowerDescriber = (function () {
 
   /** { text, truncated } ou { text: "", reason } si le site décrit déjà tout (ou s'il n'y a rien à décrire). */
   function describe(p, potions) {
-    if (!p || !p.kind) return { text: "", reason: "Commence par le programme du pouvoir (bloc de départ), puis génère sa description." };
+    if (!p || (!p.kind && !(p.rules || []).length)) return { text: "", reason: "Commence par le programme du pouvoir (bloc de départ), puis génère sa description." };
     const all = [];
-    sentences(p, potions || {}).forEach(function (s) { wrap(tidy(s)).forEach(function (l) { all.push(tidy(l)); }); });
+    const rules = typeof RULES === "undefined" ? [] : ruleSentences(p.rules, potions || {});
+    sentences(p, potions || {}).concat(rules).forEach(function (s) { wrap(tidy(s)).forEach(function (l) { all.push(tidy(l)); }); });
     if (!all.length) {
       return { text: "", reason: p.kind === "NO_ARMOR"
         ? "Rien à ajouter : le bonus sans armure est déjà décrit automatiquement dans le jeu."

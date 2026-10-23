@@ -152,7 +152,7 @@ const JavaGen = (function () {
     if (ITEM) { parent = "ItemPower"; imports.push("fr.nicknqck.utils.powers.ItemPower", PKG + ".RoleSupport"); }
     else if (COMMAND) { parent = "CommandEffectsPower"; imports.push(PKG + ".CommandEffectsPower"); }
     else { parent = "Power"; imports.push("fr.nicknqck.utils.powers.Power"); }
-    if (!ITEM && !COMMAND && spec.kind && spec.kind !== "PASSIVE") imports.push(PKG + ".RoleSupport");
+    if (!ITEM && ((!COMMAND && spec.kind && spec.kind !== "PASSIVE") || spec.rules)) imports.push(PKG + ".RoleSupport");
     if (!COMMAND) imports.push("org.bukkit.entity.Player", "java.util.Map");
     if (!Number.isInteger(spec.cooldown) || !Number.isInteger(spec.maxUse) || !Number.isInteger(spec.radius || 0)) throw new Error("Nombre invalide pour " + name);
 
@@ -172,6 +172,10 @@ const JavaGen = (function () {
       ctor.push("        RoleSupport.itemInit(this, " + lit(spec.param) + ");");
     } else if (!COMMAND && spec.kind && spec.kind !== "PASSIVE") {
       ctor.push("        RoleSupport.passive(this, " + lit(spec.kind) + ", " + (spec.radius || 0) + ", " + lit(spec.param || "") + ");");
+    }
+    if (spec.rules) {
+      ctor.push("        // règles « quand … » du pouvoir, en JSON (voir RuleEngine)");
+      ctor.push("        RoleSupport.rules(this, " + lit(spec.rules) + ");");
     }
     let onUse = "";
     if (ITEM) onUse = "\n    @Override\n    public boolean onUse(Player player, Map<String, Object> map) {\n        return RoleSupport.itemUse(this, player, map);\n    }\n";

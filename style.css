@@ -345,7 +345,7 @@ a.btn { display: inline-block; text-decoration: none; }
 .bk-slot { border: 2px dashed rgba(0,0,0,.25); color: rgba(0,0,0,.55); border-radius: 5px; padding: .35rem .5rem; font-size: .78rem;
   background: rgba(255,255,255,.55); }
 .bk-body .bk-slot { border-color: rgba(255,255,255,.55); color: #fff; background: transparent; }
-.bk-rootslot { margin-top: .4rem; }
+.bk-rootslot, .bk-ruleslot { margin-top: .4rem; }
 .bk-over { outline: 3px solid #4C97FF; outline-offset: 1px; }
 .bk-note { font-size: .72rem; font-weight: 500; padding: 0 .5rem .4rem; opacity: .95; }
 .bk-msg { min-height: 1.2rem; margin: .4rem 0 0; color: var(--ok); font-size: .85rem; }
@@ -446,3 +446,11 @@ body.bk-noscroll { overflow: hidden; }
 .autodesc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 .autodesc-bar .note.bad { color: var(--err); }
 .autodesc-bar [hidden] { display: none; }
+
+/* Règles « quand … » d'un pouvoir (js/rules-data.js) */
+.bk-script .bk-rulestitle { color: #3b3b46; margin: 1rem 0 .35rem; border-top: 2px dashed #c4c5cf; padding-top: .6rem; }
+.bk-rule { margin-top: .5rem; }
+.bk-rule > .bk-otherline { padding: 0 .5rem .3rem; font-size: .78rem; }
+.bk-elselabel { padding: .25rem .6rem 0; font-size: .78rem; }
+.bk input.bk-in.bk-text { width: 12rem; max-width: 100%; text-align: left; }
+.bk-sensor .bk-sel { max-width: 9rem; }

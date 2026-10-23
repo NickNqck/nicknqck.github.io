@@ -289,6 +289,18 @@ const JarBuilder = (function () {
         throw new Error("Description invalide pour le pouvoir " + stripMc(p.title));
       if (!Number.isInteger(p.cooldown) || p.cooldown < 0 || p.cooldown > 3600) throw new Error("Cooldown invalide pour le pouvoir " + stripMc(p.title));
       if (!Number.isInteger(p.maxUse) || p.maxUse < 0 || p.maxUse > 999) throw new Error("Utilisations maximum invalides pour le pouvoir " + stripMc(p.title));
+      // règles « quand … » : revérifiées (rôles et camps qui existent vraiment), puis passées au .jar en JSON (RuleEngine)
+      let rules = "";
+      if (p.rules !== undefined && !(Array.isArray(p.rules) && !p.rules.length)) {
+        const res = RULES.clean(p.rules, {
+          roles: MEETUP_ROLES.map(function (x) { return "meetup:" + x.id; })
+            .concat((settings.roles || []).map(function (x) { return "addon:" + constName(x.name); })),
+          teams: MEETUP_TEAMS.map(function (x) { return "meetup:" + x.id; })
+            .concat((settings.teams || []).map(function (x) { return "addon:" + constName(x.name); })),
+          potions: POTION_LABELS, mcText: MC_OK, isItem: p.kind === "ITEM" });
+        if (res.error) throw new Error("Règles du pouvoir " + stripMc(p.title) + " : " + res.error);
+        if (res.rules.length) rules = JSON.stringify(res.rules);
+      }
       const id = constName(stripMc(p.title));
       if (!/^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(id)) throw new Error("Nom de pouvoir inutilisable : " + stripMc(p.title));
       if (seen[id]) throw new Error("Deux pouvoirs donneraient la même classe : " + id);
@@ -296,7 +308,7 @@ const JarBuilder = (function () {
       const name = mc(p.title);
       return { className: POWER_PACKAGE + role.constant + "_" + id, name: /\u00a7r$/.test(name) ? name : name + "\u00a7r",
         cooldown: p.cooldown, maxUse: p.maxUse, kind: p.kind, radius: blocker ? p.radius : 0,
-        param: param, material: material, itemName: itemName, look: look, command: command, arg: arg,
+        param: param, material: material, itemName: itemName, look: look, command: command, arg: arg, rules: rules,
         descriptions: (autoLine ? [autoLine] : armorLine ? [armorLine] : []).concat(String(p.description || "") === "" ? [] : lines.map(mc)) };
     });
   }

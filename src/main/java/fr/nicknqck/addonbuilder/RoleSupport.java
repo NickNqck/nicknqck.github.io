@@ -274,6 +274,11 @@ public final class RoleSupport {
         }
     }
 
+    /** Appelée par le constructeur d'un pouvoir généré qui a des règles « quand … » (voir RuleEngine). */
+    public static void rules(Object power, String json) {
+        RuleEngine.install((Power) power, json);
+    }
+
     /** EventUtils.registerRoleEvent(listener) : l'écouteur est désenregistré par UHC-Meetup en fin de partie. */
     static void registerListener(Listener listener) {
         try {

@@ -14,6 +14,8 @@
  *   quand le joueur tape /<cmd> <arg>   -> pouvoir de commande (COMMAND_EFFECTS) : des blocs « donner un effet »
  *   en permanence (passif)              -> passif : un seul comportement (catégorie Passifs), ou aucun (PASSIVE)
  *   + sous n'importe quel départ : « cooldown du pouvoir », « utilisable N fois maximum »
+ *   + sous le programme, des règles « quand … » (rules-data.js, champ "rules" enregistré tel quel) : quand je tue,
+ *     toutes les N s, la nuit, tous les N coups... avec « si ⬡ alors … sinon … », « pendant », « attendre », compteurs
  *
  * Programme d'un objet :
  *   Quand le joueur utilise <objet>
@@ -44,14 +46,21 @@ const BlockEditor = (function () {
     { id: "target", name: "Cible", color: "#E6503C" },
     { id: "passive", name: "Passifs", color: "#CF63CF" },
     { id: "looks", name: "Effets", color: "#9966FF" },
-    { id: "operators", name: "Cooldown et limites", color: "#59C059" }
+    { id: "operators", name: "Cooldown et limites", color: "#59C059" },
+    // règles « quand … » (js/rules-data.js) : avec n'importe quel bloc de départ
+    { id: "rules", name: "Règles : quand …", color: "#D9A21B" },
+    { id: "rctrl", name: "Contrôle des règles", color: "#FFAB19" },
+    { id: "rcond", name: "Conditions des règles", color: "#4BA3C9" },
+    { id: "ract", name: "Actions des règles", color: "#7C6BE0" },
+    { id: "rcount", name: "Compteurs", color: "#E0702E" }
   ];
+  const RULE_CATS = ["rules", "rctrl", "rcond", "ract", "rcount"];
   // catégories proposées selon le bloc de départ
   const CATS_OF = {
     none: ["events"],
-    evItem: ["events", "look", "control", "sensing", "motion", "projectile", "area", "target", "looks", "operators"],
-    evCommand: ["events", "looks", "operators"],
-    evPassive: ["events", "passive", "looks", "operators"]
+    evItem: ["events", "look", "control", "sensing", "motion", "projectile", "area", "target", "looks", "operators"].concat(RULE_CATS),
+    evCommand: ["events", "looks", "operators"].concat(RULE_CATS),
+    evPassive: ["events", "passive", "looks", "operators"].concat(RULE_CATS)
   };
 
   // Blocs. zone : root (programme), cond (emplacement ⬡ d'un « si » du programme), innerCond (⬡ d'un « si » imbriqué),
@@ -98,13 +107,30 @@ const BlockEditor = (function () {
     powerCooldown: { cat: "operators", zone: "root", limit: true, palette: "cooldown du pouvoir" },
     maxUse: { cat: "operators", zone: "root", limit: true, palette: "utilisable N fois maximum" }
   };
+  // blocs des règles, tirés de rules-data.js : rule_<DÉCLENCHEUR> (chapeau), cond_<CONDITION> (⬡), act_<ACTION>
+  const PALETTE_NAMES = { role: function () { return "…"; }, team: function () { return "…"; }, effect: function () { return "…"; } };
+  const paletteLabel = function (spec) { return RULES.fill(spec, RULES.defaults(spec), PALETTE_NAMES); };
+  Object.keys(RULES.TRIGGERS).forEach(function (k) {
+    DEF["rule_" + k] = { cat: "rules", zone: "rule", rule: true, palette: paletteLabel(RULES.TRIGGERS[k]) + " :" };
+  });
+  Object.keys(RULES.ACTIONS).forEach(function (k) {
+    const spec = RULES.ACTIONS[k];
+    const cat = spec.container ? "rctrl" : k.indexOf("COUNTER") !== -1 ? "rcount" : "ract";
+    DEF["act_" + k] = { cat: cat, zone: "ract", rule: true, palette: k === "IF" ? "si ⬡ alors … sinon …" : paletteLabel(spec) };
+    if (k === "IF") { // les conditions viennent juste après le « si » des règles
+      Object.keys(RULES.CONDITIONS).forEach(function (c) {
+        DEF["cond_" + c] = { cat: "rcond", zone: "rcond", rule: true, palette: paletteLabel(RULES.CONDITIONS[c]) };
+      });
+    }
+  });
+  const isRuleType = function (type) { return !!(DEF[type] && DEF[type].rule); };
   const EVENT_KIND = { evItem: "ITEM", evCommand: "COMMAND_EFFECTS" };
   const PASSIVE_KINDS = ["PASSIVE", "BLOCK_EFFECT", "BLOCK_POWER", "INFO", "NO_ARMOR"];
-  const CSHAPES = ["if", "launch", "area", "blockFx", "info", "noArmor"];
+  const CSHAPES = ["if", "launch", "area", "blockFx", "info", "noArmor", "act_IF", "act_DURING", "act_WAIT"];
   // champs du pouvoir écrits par l'éditeur (en plus des champs des clics, préfixes a et b)
   const POWER_FIELDS = ["kind", "powerItem", "clickMode", "onHit", "radius", "blockedEffects", "needSeconds", "teamColors", "defaultColor",
     "armorEffects", "armorNoFall", "command", "arg", "cmdEffects", "cooldown", "maxUse",
-    "itemGlint", "itemEnchants", "itemHideEnchants", "itemUnbreakable"];
+    "itemGlint", "itemEnchants", "itemHideEnchants", "itemUnbreakable", "rules"];
   const SENSOR_OF = { LEFT: "sensLeft", RIGHT: "sensRight", ANY: "sensAny", HIT: "sensHit" };
   const CLICK_NAME = { LEFT: "clic gauche", RIGHT: "clic droit", ANY: "clic gauche ou clic droit", HIT: "frapper un joueur" };
   const TARGET_DEFAULT = { DAMAGE: 1, FIRE: 3, KNOCKBACK: 2, UP: 10, STUN: 2 };
@@ -126,7 +152,7 @@ const BlockEditor = (function () {
   }
   const catOf = function (type) { return CATS.find(function (c) { return c.id === DEF[type].cat; }); };
   const clone = function (v) { return v === undefined ? v : JSON.parse(JSON.stringify(v)); };
-  const isSensor = function (type) { return DEF[type].zone === "cond" || DEF[type].zone === "innerCond"; };
+  const isSensor = function (type) { return DEF[type].zone === "cond" || DEF[type].zone === "innerCond" || DEF[type].zone === "rcond"; };
   const nestedOf = function (b) { return b.blocks.find(function (x) { return x.t === "if"; }); };
   const launchOf = function (b) { return b.blocks.find(function (x) { return x.t === "launch"; }); };
   const areaOf = function (b) { return b.blocks.find(function (x) { return x.t === "area"; }); };
@@ -192,7 +218,7 @@ const BlockEditor = (function () {
   // programme = { event: null | { t: "evItem", item } | { t: "evCommand", command, arg } | { t: "evPassive" },
   //               branches (objet), body (commande : effets ; passif : un comportement), limits (cooldown, utilisations) }
   function read(p, dflt) {
-    const prog = { event: null, branches: [], body: [], limits: [], look: [] };
+    const prog = { event: null, branches: [], body: [], limits: [], look: [], rules: clone(p.rules) || [] };
     const k = p.kind;
     if (k === "ITEM") {
       prog.event = { t: "evItem", item: p.powerItem || dflt("powerItem") };
@@ -342,6 +368,7 @@ const BlockEditor = (function () {
         p.armorNoFall = b.blocks.some(function (x) { return x.t === "noFall"; });
       }
     }
+    p.rules = clone(prog.rules);
     prog.limits.forEach(function (x) {
       if (x.t === "powerCooldown") p.cooldown = x.seconds;
       if (x.t === "maxUse") p.maxUse = x.count;
@@ -655,12 +682,15 @@ const BlockEditor = (function () {
       Object.keys(DEF).filter(function (t) {
         return DEF[t].cat === cat.id && !(t === "cooldown" && ev !== "evItem");
       }).forEach(function (type) {
-        const shape = CSHAPES.indexOf(type) !== -1 ? " bk-cshape" : isSensor(type) ? " bk-hex" : DEF[type].zone === "event" ? " bk-hat" : "";
-        const b = el("button", "bk-block bk-pal" + shape, DEF[type].palette);
+        const shape = CSHAPES.indexOf(type) !== -1 ? " bk-cshape" : isSensor(type) ? " bk-hex" : DEF[type].zone === "event" || DEF[type].zone === "rule" ? " bk-hat" : "";
+        const b = el("button", "bk-block bk-pal" + shape + (DEF[type].rule ? " bk-rulepal" : ""), DEF[type].palette);
         b.type = "button";
         b.style.setProperty("--c", cat.color);
         b.draggable = true;
-        b.title = type === "if" ? "« si » : dans le programme (avec un capteur de clic) ou à l'intérieur d'un clic (avec « viser un joueur »)"
+        b.title = DEF[type].zone === "rule" ? "Nouvelle règle : glisse-la sous le programme (ou clique dessus), puis ajoute-lui des actions"
+          : DEF[type].zone === "rcond" ? "Condition : glisse-la dans l'emplacement ⬡ d'un « si » de règle (ou clique dessus)"
+          : DEF[type].rule ? "Glisse ce bloc dans une règle (sous « quand … »), ou clique dessus pour l'ajouter à la zone sélectionnée"
+          : type === "if" ? "« si » : dans le programme (avec un capteur de clic) ou à l'intérieur d'un clic (avec « viser un joueur »)"
           : DEF[type].zone === "event" ? "Bloc de départ : glisse-le tout en haut du programme (ou clique dessus)"
           : isSensor(type) ? "Capteur : glisse-le dans l'emplacement ⬡ d'un « si » (ou clique dessus)"
           : "Glisse ce bloc dans le programme, ou clique dessus pour l'ajouter à la zone sélectionnée";
@@ -683,6 +713,9 @@ const BlockEditor = (function () {
     // zone sélectionnée (cible des blocs ajoutés par un simple clic) : seule la surbrillance change
     const keyOf = function (zone) {
       if (!zone || zone === "root") return "root";
+      if (zone.rz) return "R:" + zone.rz.join("/");
+      if (zone.rzc) return "RC:" + zone.rzc.join("/") + "/" + zone.i;
+      if (zone.rnew) return "rnew";
       if (zone.event) return "event";
       if (zone.pb !== undefined) return "pb" + zone.pb;
       return zone.branch + ":" + (zone.inner ? "inner" : zone.impact ? "impact" : zone.area ? "area" : "branch");
@@ -713,6 +746,8 @@ const BlockEditor = (function () {
       return { list: b.blocks, item: b.blocks[ref.index] };
     }
     function typeOf(ref) {
+      if (ref.rule !== undefined) return "rule_" + prog.rules[ref.rule].on;
+      if (ref.rp) { const n = rList(ref.rp)[ref.i]; return ref.cond ? "cond_" + n.c.k : "act_" + n.a; }
       if (ref.event) return prog.event.t;
       if (ref.limit !== undefined || ref.look !== undefined || ref.body !== undefined) return locate(ref).item.t;
       if (ref.cond) return ref.inner ? "sensAim" : SENSOR_OF[prog.branches[ref.branch].click];
@@ -728,6 +763,13 @@ const BlockEditor = (function () {
       return locate(ref).item;
     }
     function remove(ref) {
+      if (ref.rule !== undefined) { prog.rules.splice(ref.rule, 1); selected = "root"; return; }
+      if (ref.rp) {
+        const list = rList(ref.rp);
+        if (ref.cond) list[ref.i].c = null; else list.splice(ref.i, 1);
+        selected = { rz: ref.rp };
+        return;
+      }
       if (ref.event) { // le départ emporte tout son programme (sauf cooldown et utilisations)
         prog.event = null; prog.branches = []; prog.body = []; prog.look = []; selected = "root"; return;
       }
@@ -757,6 +799,7 @@ const BlockEditor = (function () {
       return values.find(function (v) { return used.indexOf(v) === -1; });
     }
     function insert(type, zone, before, from) {
+      if (isRuleType(type) || (zone && (zone.rz || zone.rzc || zone.rnew))) return ruleInsert(type, zone, before, from);
       const why = refuse(prog, type, zone, movedThing(from), ctx);
       if (why) { say(why, true); return false; }
       const kind = zoneKind(zone);
@@ -842,6 +885,7 @@ const BlockEditor = (function () {
     function addByClick(type) {
       say("");
       const def = DEF[type], ev = evType();
+      if (def.rule) { if (ruleClickZone(type) && insert(type, ruleClickZone(type))) commit(); return; }
       if (def.zone === "event") { if (insert(type, { event: true })) commit(); return; }
       if (!ev) return say(refuse(prog, type, "root", null, ctx), true);
       if (def.limit || def.look) { if (insert(type, "root")) commit(); return; }
@@ -917,10 +961,270 @@ const BlockEditor = (function () {
       if (insert(type, zone)) commit();
     }
 
+    // ---------- règles « quand … » (js/rules-data.js) ----------
+    // prog.rules = les règles enregistrées telles quelles. Chemin d'une liste : [règle, "do"] ou [règle, "do", n, "else"]...
+    // refs : { rule: i } (chapeau), { rp: chemin, i } (bloc d'une liste), { rp, i, cond: true } (condition d'un « si »)
+    // zones : { rz: chemin } (liste), { rzc: chemin, i } (emplacement ⬡ d'un « si »), { rnew: true } (nouvelle règle)
+    function rList(path) {
+      let node = prog.rules[path[0]], list = null;
+      for (let k = 1; k < path.length; k += 2) {
+        if (!node) return null;
+        list = node[path[k]] || (node[path[k]] = []);
+        if (k + 1 < path.length) node = list[path[k + 1]];
+      }
+      return list;
+    }
+    const subjectOf = function (rule) { const s = rule && RULES.TRIGGERS[rule.on]; return s ? s.subject : null; };
+    const countNodes = function (list) {
+      return (list || []).reduce(function (n, x) {
+        return n + 1 + (RULES.ACTIONS[x.a] && RULES.ACTIONS[x.a].container || []).reduce(function (m, s) { return m + countNodes(x[s]); }, 0);
+      }, 0);
+    };
+    const depthOf = function (node) { // nombre de niveaux de listes sous ce bloc (0 = bloc simple)
+      return (RULES.ACTIONS[node.a].container || []).reduce(function (d, s) {
+        return Math.max(d, 1 + (node[s] || []).reduce(function (m, x) { return Math.max(m, depthOf(x)); }, 0));
+      }, 0);
+    };
+    const allNodes = function () { return prog.rules.reduce(function (n, r) { return n + countNodes(r.do); }, 0); };
+    function ruleDefaults(spec) {
+      const p = RULES.defaults(spec);
+      Object.keys(spec.params || {}).forEach(function (k) {
+        const d = spec.params[k];
+        if (d.type === "effect") p[k] = opts.potions.SPEED ? "SPEED" : Object.keys(opts.potions)[0];
+        if (d.type === "counter") p[k] = "charge";
+      });
+      return p;
+    }
+    function newRuleNode(key) {
+      const spec = RULES.ACTIONS[key];
+      const node = { a: key, p: ruleDefaults(spec) };
+      if (key === "IF") node.c = null;
+      (spec.container || []).forEach(function (s) { node[s] = []; });
+      return node;
+    }
+    const RULE_HELP = "Règle ajoutée : glisse-lui des actions (catégories Actions des règles, Contrôle des règles, Compteurs).";
+
+    function ruleInsert(type, zone, before, from) {
+      if (!isRuleType(type)) { say("Dans une règle, utilise les blocs des catégories Actions des règles, Contrôle des règles et Compteurs.", true); return false; }
+      if (!evType()) { say("Commence par un bloc de départ (catégorie Événements) : « en permanence » suffit pour un pouvoir fait seulement de règles.", true); return false; }
+      const kind = type.slice(0, type.indexOf("_")), key = type.slice(type.indexOf("_") + 1);
+      if (kind === "rule") {
+        if (from) { say("Une règle reste à sa place : pour l'enlever, clique sur ✕ ou glisse-la vers la palette.", true); return false; }
+        if (prog.rules.length >= RULES.MAX_RULES) { say(RULES.MAX_RULES + " règles au maximum par pouvoir.", true); return false; }
+        prog.rules.push({ on: key, p: ruleDefaults(RULES.TRIGGERS[key]), cd: 0, do: [] });
+        selected = { rz: [prog.rules.length - 1, "do"] };
+        say(RULE_HELP);
+        return true;
+      }
+      if (kind === "cond") {
+        const list = zone && zone.rzc ? rList(zone.rzc) : null, target = list ? list[zone.i] : null;
+        if (!target || target.a !== "IF") { say("Glisse cette condition dans l'emplacement ⬡ d'un « si » de règle (catégorie Contrôle des règles).", true); return false; }
+        const source = from ? rList(from.rp)[from.i] : null;
+        if (target.c && target !== source) { say("Ce « si » a déjà une condition : retire-la d'abord (✕).", true); return false; }
+        if (RULES.CONDITIONS[key].needsSubject && !subjectOf(prog.rules[zone.rzc[0]])) {
+          say("Cette condition parle du « joueur concerné » : la règle doit commencer par un kill, une mort ou un coup.", true); return false;
+        }
+        const cond = source ? source.c : { k: key, p: ruleDefaults(RULES.CONDITIONS[key]) };
+        if (source) source.c = null;
+        target.c = cond;
+        selected = { rz: zone.rzc.concat([zone.i, "do"]) };
+        return true;
+      }
+      // action, « si », « pendant », « attendre », compteur
+      const list = zone && zone.rz ? rList(zone.rz) : null;
+      if (!list) { say("Glisse ce bloc dans une règle, sous « quand … » (ajoute d'abord une règle : catégorie Règles).", true); return false; }
+      const fromList = from ? rList(from.rp) : null, node = from ? fromList[from.i] : newRuleNode(key);
+      if (from) { // pas dans lui-même
+        const own = from.rp.concat([from.i]);
+        if (zone.rz.length > own.length && own.every(function (v, k) { return zone.rz[k] === v; })) { say("Un bloc ne peut pas aller à l'intérieur de lui-même.", true); return false; }
+      } else if (allNodes() + 1 > RULES.MAX_NODES) { say(RULES.MAX_NODES + " blocs au maximum dans les règles d'un pouvoir.", true); return false; }
+      if (zone.rz.length / 2 + depthOf(node) > RULES.MAX_DEPTH) { say("Trop de blocs imbriqués (" + RULES.MAX_DEPTH + " niveaux au maximum).", true); return false; }
+      if (node.p && node.p.to === "SUBJECT" && !subjectOf(prog.rules[zone.rz[0]])) node.p.to = "ME";
+      let at = before === undefined || before > list.length ? list.length : before;
+      if (from) {
+        const k = fromList.indexOf(node);
+        fromList.splice(k, 1);
+        if (fromList === list && k < at) at--;
+      }
+      list.splice(at, 0, node);
+      selected = RULES.ACTIONS[key].container ? { rz: zone.rz.concat([list.indexOf(node), "do"]) } : { rz: zone.rz };
+      if (key === "IF" && !from) say("Place maintenant une condition (catégorie Conditions des règles) dans l'emplacement ⬡ du « si ».");
+      return true;
+    }
+    // zone d'un bloc de règle ajouté par un simple clic
+    function ruleClickZone(type) {
+      const kind = type.slice(0, type.indexOf("_"));
+      if (kind === "rule") return { rnew: true };
+      const sel = selected && selected.rz && rList(selected.rz) ? selected.rz : null;
+      const r = sel ? sel[0] : prog.rules.length - 1;
+      if (r < 0) { say("Ajoute d'abord une règle (catégorie Règles : quand …).", true); return null; }
+      if (kind === "act") return { rz: sel || [r, "do"] };
+      // condition : le premier « si » sans condition, dans la règle sélectionnée puis dans les autres
+      let found = null;
+      const walk = function (list, path) {
+        list.forEach(function (n, i) {
+          if (found) return;
+          if (n.a === "IF" && !n.c) { found = { rzc: path, i: i }; return; }
+          (RULES.ACTIONS[n.a].container || []).forEach(function (s) { walk(n[s] || [], path.concat([i, s])); });
+        });
+      };
+      [r].concat(prog.rules.map(function (x, k) { return k; })).forEach(function (k) { if (!found) walk(prog.rules[k].do, [k, "do"]); });
+      if (!found) say("Ajoute d'abord « si ⬡ alors … sinon … » (catégorie Contrôle des règles) dans une règle.", true);
+      return found;
+    }
+
+    // ---- champs d'un bloc de règle (d'après rules-data.js) ----
+    function ruleSelect(obj, key, options, redraw, toValue) {
+      const s = el("select", "bk-sel");
+      let group = null, groupName = null;
+      options.forEach(function (o) {
+        if (o[2] !== groupName) { groupName = o[2]; group = groupName ? s.appendChild(el("optgroup")) : null; if (group) group.label = groupName; }
+        const op = el("option", "", o[1]); op.value = o[0]; (group || s).appendChild(op);
+      });
+      s.value = String(obj[key]);
+      s.addEventListener("change", function () { obj[key] = toValue ? toValue(s.value) : s.value; if (redraw) commit(); else save(); });
+      s.addEventListener("click", function (e) { e.stopPropagation(); });
+      return s;
+    }
+    function keyChoice(obj, key, list, what) { // rôle ou camp : clé "meetup:…" / "addon:…"
+      const options = list.map(function (x) { return [x.id, x.name, x.group]; });
+      if (!obj[key]) options.unshift(["", "— " + what + " ? —"]);
+      else if (!list.some(function (x) { return x.id === obj[key]; })) options.unshift([obj[key], obj[key].replace(/^\w+:/, "") + " (introuvable)"]);
+      const s = ruleSelect(obj, key, options);
+      const check = function () { s.classList.toggle("bad", !list.some(function (x) { return x.id === obj[key]; })); };
+      check(); s.addEventListener("change", check);
+      return s;
+    }
+    function ruleField(spec, p, key, rule) {
+      const d = spec.params[key];
+      switch (d.type) {
+        case "num": return num(p, key, d.min, d.max, d.step);
+        case "bool": return ruleSelect(p, key, [["false", d.no], ["true", d.yes]], false, function (v) { return v === "true"; });
+        case "sel": {
+          let options = d.options.slice();
+          if (key === "to" || key === "who") { // « le joueur concerné » : nommé d'après le déclencheur, absent s'il n'y en a pas
+            const subject = subjectOf(rule);
+            options = options.filter(function (o) { return o[0] !== "SUBJECT" || subject || p[key] === "SUBJECT"; })
+              .map(function (o) { return o[0] !== "SUBJECT" ? o : [o[0], subject ? (key === "who" ? subject + " a" : subject) : o[1] + " (aucun ici)"]; });
+          }
+          return ruleSelect(p, key, options, key === "to");
+        }
+        case "role": return keyChoice(p, key, opts.roles || [], "rôle");
+        case "team": return keyChoice(p, key, opts.allTeams || [], "camp");
+        case "effect": return ruleSelect(p, key, Object.keys(opts.potions).map(function (k) { return [k, opts.potions[k]]; }));
+        default: { // text, counter
+          const n = el("input", "bk-in" + (d.type === "text" ? " bk-text" : " bk-arg"));
+          n.type = "text"; n.value = p[key];
+          n.maxLength = d.type === "text" ? d.max || 100 : 16;
+          n.setAttribute("aria-label", d.type === "text" ? "texte" : "nom du compteur");
+          if (d.type === "counter") n.placeholder = "charge";
+          const ok = d.type === "text" ? function (v) { return v.length > 0 && (!opts.mcText || opts.mcText.test(v)); }
+            : function (v) { return /^[a-z][a-z0-9_]{0,15}$/.test(v); };
+          const check = function () { n.classList.toggle("bad", !ok(n.value)); };
+          check();
+          n.addEventListener("input", function () { p[key] = n.value; check(); save(); });
+          n.addEventListener("click", function (e) { e.stopPropagation(); });
+          return n;
+        }
+      }
+    }
+    // libellé du bloc avec ses champs à la place des {paramètres} ; rayon / rôle juste après « {to} » quand ils servent
+    function ruleLabel(line, spec, p, rule) {
+      spec.label.split(/(\{\w+\})/).forEach(function (part) {
+        const m = /^\{(\w+)\}$/.exec(part);
+        if (!m) { if (part.trim()) line.appendChild(t(part.trim())); return; }
+        line.appendChild(ruleField(spec, p, m[1], rule));
+        if (m[1] === "to") {
+          if (RULES.visible(spec.params.r, p)) { line.appendChild(t("dans un rayon de")); line.appendChild(ruleField(spec, p, "r", rule)); line.appendChild(t("blocs")); }
+          if (RULES.visible(spec.params.role, p)) line.appendChild(ruleField(spec, p, "role", rule));
+        }
+      });
+    }
+    function ruleList(list, path, rule, empty, extraCls) {
+      const zone = { rz: path };
+      const body = el("div", "bk-body" + (extraCls || ""));
+      if (selected && keyOf(selected) === keyOf(zone)) body.classList.add("bk-sel-zone");
+      list.forEach(function (node, j) {
+        const n = ruleNode(node, path, j, rule);
+        dropZone(n, zone, j);
+        body.appendChild(n);
+      });
+      body.appendChild(el("div", "bk-slot", list.length ? "+" : empty));
+      dropZone(body, zone);
+      body.dataset.zone = keyOf(zone);
+      body.addEventListener("click", function (e) { e.stopPropagation(); select(zone); });
+      return body;
+    }
+    function ruleNode(node, path, i, rule) {
+      const spec = RULES.ACTIONS[node.a], type = "act_" + node.a, ref = { rp: path, i: i };
+      const box = el("div", "bk-block" + (spec.container ? " bk-cshape" : "") + (node.a === "IF" && !node.c ? " bk-incomplete" : ""));
+      box.style.setProperty("--c", catOf(type).color);
+      const line = el("div", "bk-line");
+      box.appendChild(line);
+      if (node.a === "IF") {
+        line.appendChild(t("si"));
+        const condZone = { rzc: path, i: i };
+        let slot;
+        if (node.c) {
+          const cs = RULES.CONDITIONS[node.c.k], content = el("span");
+          ruleLabel(content, cs, node.c.p, rule);
+          slot = el("span", "bk-cond");
+          slot.appendChild(sensorNode("cond_" + node.c.k, { rp: path, i: i, cond: true }, Array.prototype.slice.call(content.childNodes),
+            function () { remove({ rp: path, i: i, cond: true }); say("Condition retirée."); commit(); }));
+        } else {
+          slot = emptySlot("condition… ?", "Glisse ici une condition (catégorie Conditions des règles)");
+        }
+        dropZone(slot, condZone);
+        line.appendChild(slot);
+        line.appendChild(t("alors"));
+      } else {
+        ruleLabel(line, spec, node.p, rule);
+      }
+      line.appendChild(closeButton("Supprimer ce bloc", function () { remove(ref); say("Bloc supprimé."); commit(); }));
+      draggableAs(box, ref, type);
+      const slots = { IF: [["do", null, "glisse ici ce qui se passe si la condition est vraie"], ["else", "sinon :", "(facultatif) ce qui se passe sinon"]],
+        DURING: [["do", null, "glisse ici ce qui se répète chaque seconde"], ["end", "à la fin :", "(facultatif) ce qui se passe à la fin"]],
+        WAIT: [["do", null, "glisse ici ce qui se passe après l'attente"]] }[node.a] || [];
+      slots.forEach(function (s, k) {
+        if (s[1]) box.appendChild(el("div", "bk-label bk-elselabel", s[1]));
+        box.appendChild(ruleList(node[s[0]] || (node[s[0]] = []), path.concat([i, s[0]]), rule, s[2], k ? " bk-impact" : ""));
+      });
+      if (spec.container) box.appendChild(el("div", "bk-foot"));
+      return box;
+    }
+    function ruleHat(rule, r) {
+      const spec = RULES.TRIGGERS[rule.on], type = "rule_" + rule.on;
+      const hat = el("div", "bk-block bk-hat bk-cshape bk-rule");
+      hat.style.setProperty("--c", catOf(type).color);
+      const line = el("div", "bk-line");
+      hat.appendChild(line);
+      ruleLabel(line, spec, rule.p, rule);
+      line.appendChild(t(":"));
+      line.appendChild(closeButton("Supprimer cette règle et ses blocs", function () { remove({ rule: r }); say("Règle supprimée."); commit(); }));
+      draggableAs(hat, { rule: r }, type);
+      const cd = el("div", "bk-line bk-otherline");
+      cd.appendChild(t("cooldown de la règle :")); cd.appendChild(num(rule, "cd", 0, 3600, 1)); cd.appendChild(t("s (0 = aucun)"));
+      hat.appendChild(cd);
+      if (spec.subject) hat.appendChild(el("div", "bk-note", "Dans cette règle, « le joueur concerné » = " + spec.subject + "."));
+      hat.appendChild(ruleList(rule.do, [r, "do"], rule, "glisse ici les actions de la règle"));
+      hat.appendChild(el("div", "bk-foot"));
+      return hat;
+    }
+    function drawRules() {
+      if (!evType() && !prog.rules.length) return;
+      script.appendChild(el("p", "bk-cat bk-rulestitle", "Règles du pouvoir (facultatives)"));
+      prog.rules.forEach(function (rule, r) { script.appendChild(ruleHat(rule, r)); });
+      const zone = { rnew: true };
+      const end = el("div", "bk-slot bk-ruleslot", prog.rules.length ? "+ « quand … »" : "glisse ici un bloc « quand … » (catégorie Règles) : kill, mort d'un rôle, nuit, coups reçus...");
+      dropZone(end, zone);
+      end.dataset.zone = keyOf(zone);
+      script.appendChild(end);
+    }
+
     // zone de dépôt. Un « si » se dépose dans le programme ou directement dans un clic ; les autres blocs sont acceptés
     // partout et, s'ils n'ont rien à faire là, refusés avec un message qui explique où les mettre.
     function accepts(zone, type) {
-      if (type !== "if") return true;
+      if (type !== "if" || (zone && (zone.rz || zone.rzc || zone.rnew))) return true;
       const kind = zoneKind(zone);
       return kind === "root" || kind === "branch";
     }
@@ -964,7 +1268,9 @@ const BlockEditor = (function () {
       n.type = "number"; n.min = min; n.max = max; n.step = step || 1;
       n.value = block[key];
       n.setAttribute("aria-label", { distance: "distance en blocs", radius: "rayon en blocs", seconds: "durée en secondes",
-        level: "niveau", damage: "dégâts en cœurs", hearts: "dégâts en cœurs", height: "hauteur en blocs", count: "nombre d'utilisations", amount: "valeur" }[key] || key);
+        level: "niveau", damage: "dégâts en cœurs", hearts: "dégâts en cœurs", height: "hauteur en blocs", count: "nombre d'utilisations", amount: "valeur",
+        s: "durée en secondes", cd: "cooldown de la règle en secondes", pct: "pourcentage", n: "nombre", r: "rayon en blocs", v: "valeur",
+        min: "minimum", max: "maximum" }[key] || key);
       const check = function () { n.classList.toggle("bad", !(n.valueAsNumber >= min && n.valueAsNumber <= max) || (step === 1 && !Number.isInteger(n.valueAsNumber))); };
       check();
       n.addEventListener("input", function () { block[key] = n.valueAsNumber; check(); save(); if (onInput) onInput(); });
@@ -1359,6 +1665,7 @@ const BlockEditor = (function () {
       end.addEventListener("click", function () { select("root"); });
       if (selected === "root") end.classList.add("bk-sel-zone");
       script.appendChild(end);
+      drawRules();
     }
 
     save(); // normalise le brouillon (mêmes valeurs que le formulaire)

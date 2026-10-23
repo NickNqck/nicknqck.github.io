@@ -32,6 +32,8 @@ Trois façons de le fournir :
       app.js            moteur des menus, import/export, compilation
       menu-data.js      les menus (c'est ici qu'on ajoute des boutons)
       blocks.js         éditeur à blocs (façon Scratch) : seule façon de créer un pouvoir (objet, commande, passifs, cooldown)
+      rules-data.js     règles « quand … » des pouvoirs : déclencheurs, conditions, actions (exécutées par RuleEngine.java)
+      meetup-roles.js   rôles d'UHC-Meetup (enum Roles), pour les conditions « le joueur concerné a le rôle … »
       describe.js       description automatique d'un pouvoir (bouton « Générer automatiquement »)
       items-data.js, colors-data.js, effects-data.js, meetup-modes.js, meetup-teams.js   données
       commands-data.js  règles des commandes personnalisées (format, noms déjà pris par UHC-Meetup / Minecraft)
