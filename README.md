@@ -87,3 +87,10 @@ Dans les règles des pouvoirs (catégorie « Variables ») :
 - **l'afficher** dans un message ou la barre d'action : `%nom%` (ma valeur) ou `%joueur:nom%` (celle du joueur concerné).
 
 Une variable « par joueur » se lit et se modifie pour moi ou pour le joueur concerné par la règle. Le .jar les gère dans `Variables.java`.
+
+## Rôles dans un mode d'UHC-Meetup : équipes
+
+Un rôle placé dans un mode d'UHC-Meetup (Demon Slayer, AOT, Naruto) peut prendre n'importe quelle équipe de ce mode : une équipe
+d'UHC-Meetup (y compris celles qui n'ont pas de page dans le menu des rôles, comme Jigoro ou Kyojuro - Shinjuro), « Solo », ou une équipe
+créée dans l'addon pour ce mode. Pour les équipes sans page, le .jar ajoute un bouton (laine de la couleur de l'équipe) dans le menu des
+rôles du mode ; il ouvre la page de l'équipe, comme celles d'UHC-Meetup (`MeetupPages.java`).

@@ -2,8 +2,9 @@
  * Équipes déjà présentes dans UHC-Meetup (enum TeamList, branche main du dépôt UHC_Meetup).
  * id = nom exact de la constante, code = caractère de couleur après le § (bold = suivi de §l),
  * mdj = mode de jeu de l'équipe ("all" = utilisable dans tous les modes).
- * menus = modes d'UHC-Meetup dont le menu des rôles a une page pour cette équipe (TeamRoleInventory dans Inventories.java) :
- * un rôle de l'addon placé dans un mode d'UHC-Meetup doit être dans l'une de ces équipes pour apparaître dans ce menu.
+ * menus = modes d'UHC-Meetup dont le menu des rôles a une page pour cette équipe (TeamRoleInventory dans Inventories.java).
+ * Un rôle de l'addon placé dans une autre équipe du mode (Jigoro...) ou dans une équipe de l'addon y reçoit une page ajoutée
+ * par le .jar (MeetupPages.java).
  * Cette liste peut différer de la snapshot 17.
  */
 const MEETUP_TEAMS = [

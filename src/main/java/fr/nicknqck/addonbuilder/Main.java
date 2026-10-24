@@ -120,6 +120,8 @@ public class Main extends JavaPlugin {
         // Enregistrement des rôles dans UHC-Meetup + écoute de l'évènement qui demande leur création
         // (dans une classe à part, pas dans cette Main)
         Bukkit.getPluginManager().registerEvents(new RegisterRoleListener(roles), this);
+        // rôles placés dans une équipe sans page dans le menu des rôles d'un mode d'UHC-Meetup : page ajoutée
+        MeetupPages.install(roles.getEnumConstants());
         Bukkit.getLogger().info("[UHC-Addon] " + roles.getEnumConstants().length + " role(s) enregistre(s)");
     }
 

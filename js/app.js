@@ -291,11 +291,11 @@
   function teamLabel(id) { const t = teamOf(id); return t ? t.name : id; }
   // Une équipe n'est utilisable que dans son propre mode de jeu (ou "all" = tous)
   const isMeetupMode = function (mdj) { return MEETUP_MODES.some(function (m) { return m.id === mdj; }); };
-  // équipe utilisable par un rôle de ce mode : dans un mode d'UHC-Meetup, seulement les équipes qui ont une page dans
-  // son menu des rôles (sinon le rôle serait introuvable en jeu) ; dans un mode de l'addon, celles du mode ou « tous »
+  // équipe utilisable par un rôle de ce mode : celles du mode (de l'addon ou d'UHC-Meetup) ou de « tous ». Dans un mode
+  // d'UHC-Meetup, une équipe sans page dans son menu des rôles (Jigoro, équipe de l'addon...) y reçoit une page ajoutée par
+  // le .jar (MeetupPages.java), pour que le rôle soit trouvable en jeu.
   function teamFits(t, mdj) {
     if (!t || !mdj) return true;
-    if (isMeetupMode(mdj)) return t.source === "uhc" && (t.menus || []).indexOf(mdj) !== -1;
     return t.mdj === "all" || t.mdj === mdj;
   }
   function roleProblem(r) {
@@ -369,7 +369,7 @@
       if (t) { seen[id] = true; out.push(t); }
     };
     (state[TEAMS_ID] || []).filter(function (t) { return t.mdj === mode; }).forEach(function (t) { add("addon:" + constName(t.name)); });
-    MEETUP_TEAMS.filter(function (t) { return t.mdj === "all" || (t.menus || []).indexOf(mode) !== -1; }).forEach(function (t) { add("meetup:" + t.id); });
+    MEETUP_TEAMS.filter(function (t) { return t.mdj === "all" || t.mdj === mode; }).forEach(function (t) { add("meetup:" + t.id); });
     (state[ROLES_ID] || []).filter(function (r) { return r.mdj === mode; }).forEach(function (r) { add(r.team); });
     if (editing && editing.draft && editing.draft.team) add(editing.draft.team);
     return out;
@@ -1059,7 +1059,8 @@
     const isTeam = f.type === "team";
     menu.appendChild(el("h2", "q", isTeam ? "Choisis l'équipe" : "Choisis le mode de jeu"));
     menu.appendChild(el("p", "hint", isTeam
-      ? "Équipes créées dans cet addon et équipes déjà présentes dans UHC-Meetup. Celles d'un autre mode de jeu sont grisées. Fais défiler la liste."
+      ? "Équipes créées dans cet addon et équipes déjà présentes dans UHC-Meetup. Celles d'un autre mode de jeu sont grisées. Dans un mode d'UHC-Meetup, " +
+        "une équipe qui n'a pas sa page dans le menu des rôles (Jigoro, une équipe de l'addon...) en reçoit une. Fais défiler la liste."
       : f.type === "mymdj" ? "Uniquement les modes de jeu créés dans cet addon. Fais défiler la liste."
       : f.type === "rolemdj" ? "Un mode de cet addon, ou un mode déjà présent dans UHC-Meetup : le rôle apparaît alors dans le menu des rôles de ce mode, dans la page de son équipe."
       : "Modes créés dans cet addon et modes déjà présents dans UHC-Meetup. Fais défiler la liste."));
