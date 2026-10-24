@@ -493,3 +493,14 @@ body.bk-noscroll { overflow: hidden; }
 .bk-numvar { display: inline-flex; align-items: center; gap: .2rem; }
 .bk-sel.bk-mini { max-width: 7.5rem; padding-left: .2rem; padding-right: .2rem; }
 .bk-note.bk-inline { display: inline; margin: 0; }
+
+/* catégories déroulables de la palette */
+.bk-cathead { display: block; width: 100%; text-align: left; background: none; border: 0; padding: .15rem 0; cursor: pointer;
+  font: 700 .85rem/1.3 system-ui, sans-serif; }
+.bk-cathead:hover, .bk-cathead:focus-visible { text-decoration: underline; outline: none; }
+.bk-catbody { display: flex; flex-direction: column; gap: .35rem; }
+.bk-catbody[hidden] { display: none; }
+.bk-catall { display: flex; gap: .35rem; flex-wrap: wrap; }
+.bk-catallbtn { flex: 1 1 auto; background: transparent; color: var(--muted); border: 1px solid var(--pal-border); border-radius: 4px;
+  padding: .15rem .4rem; font-size: .75rem; cursor: pointer; }
+.bk-catallbtn:hover, .bk-catallbtn:focus-visible { color: var(--text); border-color: var(--text); }

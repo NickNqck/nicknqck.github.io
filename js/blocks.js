@@ -59,6 +59,16 @@ const BlockEditor = (function () {
     { id: "rvar", name: "Variables", color: "#D65CA0" },
     { id: "raot", name: "Attaque des Titans", color: "#B5533C" }
   ];
+  // catégories de la palette repliées (gardées dans le navigateur ; sans stockage, seulement le temps de la page)
+  const COLLAPSED_KEY = "uhc-addon.palette.collapsed";
+  const collapsed = (function () {
+    try { const v = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "{}"); return v && typeof v === "object" ? v : {}; } catch (e) { return {}; }
+  })();
+  const isCollapsed = function (id) { return collapsed[id] === true; };
+  const setCollapsed = function (id, on) {
+    if (on) collapsed[id] = true; else delete collapsed[id];
+    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed)); } catch (e) { /* stockage indisponible */ }
+  };
   const RULE_CATS = ["rules", "rctrl", "rcond", "ract", "rvar", "rcount", "rbar", "raot"];
   const AOT_ACTIONS = ["TITAN_GIVE", "TITAN_FLAG", "STEAL", "LANCE"];
   // catégories proposées selon le bloc de départ
@@ -687,8 +697,38 @@ const BlockEditor = (function () {
      palette.replaceChildren();
      const ev = evType();
      if (!ev) palette.appendChild(el("p", "bk-note bk-palhint", "Commence par choisir ce qui déclenche le pouvoir :"));
-     CATS.filter(function (cat) { return CATS_OF[ev || "none"].indexOf(cat.id) !== -1; }).forEach(function (cat) {
-      palette.appendChild(el("p", "bk-cat", cat.name)).style.color = cat.color;
+     const cats = CATS.filter(function (cat) { return CATS_OF[ev || "none"].indexOf(cat.id) !== -1; });
+     // tout replier / tout déplier
+     if (cats.length > 1) {
+      const all = el("div", "bk-catall");
+      [["Tout replier", true], ["Tout déplier", false]].forEach(function (x) {
+        const b = el("button", "bk-catallbtn", x[0]);
+        b.type = "button";
+        b.addEventListener("click", function () { cats.forEach(function (c) { setCollapsed(c.id, x[1]); }); drawPalette(); });
+        all.appendChild(b);
+      });
+      palette.appendChild(all);
+     }
+     cats.forEach(function (cat) {
+      // catégorie déroulable : un clic sur son titre la replie / la déplie (choix gardé par le navigateur)
+      const closed = isCollapsed(cat.id);
+      const head = el("button", "bk-cat bk-cathead", (closed ? "▸ " : "▾ ") + cat.name);
+      head.type = "button";
+      head.style.color = cat.color;
+      head.setAttribute("aria-expanded", closed ? "false" : "true");
+      head.title = closed ? "Afficher les blocs de cette catégorie" : "Replier cette catégorie";
+      const group = el("div", "bk-catbody");
+      group.hidden = closed;
+      head.addEventListener("click", function () {
+        const now = !group.hidden;
+        group.hidden = now;
+        setCollapsed(cat.id, now);
+        head.textContent = (now ? "▸ " : "▾ ") + cat.name;
+        head.setAttribute("aria-expanded", now ? "false" : "true");
+        head.title = now ? "Afficher les blocs de cette catégorie" : "Replier cette catégorie";
+      });
+      palette.appendChild(head);
+      palette.appendChild(group);
       Object.keys(DEF).filter(function (t) {
         return DEF[t].cat === cat.id && !(t === "cooldown" && ev !== "evItem");
       }).forEach(function (type) {
@@ -707,7 +747,7 @@ const BlockEditor = (function () {
         b.addEventListener("dragstart", function (e) { dragging = { mode: "new", type: type }; e.dataTransfer.setData("text/plain", type); e.dataTransfer.effectAllowed = "copyMove"; });
         b.addEventListener("dragend", function () { dragging = null; clearHints(); });
         b.addEventListener("click", function () { addByClick(type); });
-        palette.appendChild(b);
+        group.appendChild(b);
       });
      });
     }
