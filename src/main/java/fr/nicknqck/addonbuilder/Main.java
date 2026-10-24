@@ -57,6 +57,8 @@ public class Main extends JavaPlugin {
                 loadRoles();
             }
             registerCommands(MiniJson.array(settings.get("commands")));
+            // variables (menu Variables du site) : absentes d'un ancien addon-config.json
+            if (settings.get("variables") != null) Variables.load(MiniJson.array(settings.get("variables")));
         } catch (Exception e) {
             Bukkit.getLogger().severe("[UHC-Addon] Impossible de charger l'addon : " + e);
             Bukkit.getPluginManager().disablePlugin(this);

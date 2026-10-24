@@ -336,6 +336,7 @@ const JarBuilder = (function () {
             .concat((settings.roles || []).map(function (x) { return "addon:" + constName(x.name); })),
           teams: MEETUP_TEAMS.map(function (x) { return "meetup:" + x.id; })
             .concat((settings.teams || []).map(function (x) { return "addon:" + constName(x.name); })),
+          vars: variablesOf(settings),
           potions: POTION_LABELS, mcText: MC_OK, isItem: p.kind === "ITEM", kind: p.kind });
         if (res.error) throw new Error("Règles du pouvoir " + stripMc(p.title) + " : " + res.error);
         if (res.rules.length) rules = JSON.stringify(res.rules);
@@ -385,6 +386,19 @@ const JarBuilder = (function () {
       return { constant: r.constant, displayName: r.displayName, effects: effects, powers: powersOf(r, settings), noFall: r.noFall,
         revive: r.revive, extra: extra.join("\n"), superClass: superClassOf(r) };
     });
+  }
+
+  // Variables (menu Variables) : revérifiées ici ; le .jar les lit dans addon-config.json (Variables.java)
+  function variablesOf(settings) {
+    const list = settings.variables || [];
+    if (!Array.isArray(list) || list.length > MAX_VARIABLES) throw new Error("Trop de variables (" + MAX_VARIABLES + " maximum).");
+    const done = [];
+    list.forEach(function (v) {
+      const problem = variableProblem(v, done);
+      if (problem) throw new Error(problem);
+      done.push(v);
+    });
+    return variableList(list);
   }
 
   // Commandes personnalisées : { name, aliases: [alias] }, revérifiées ici (elles sont écrites dans le plugin.yml)
@@ -462,8 +476,9 @@ const JarBuilder = (function () {
     }).then(function () {
       return run(onStep, "Ajout de addon-config.json", function () {
         const json = JSON.stringify(data, null, 2);
+        const vars = variablesOf(s);
         ctx.zip.file("addon-config.json", json);
-        return (s.modes || []).length + " mode(s) de jeu, " + (s.teams || []).length + " équipe(s), " + kb(json.length);
+        return (s.modes || []).length + " mode(s) de jeu, " + (s.teams || []).length + " équipe(s), " + vars.length + " variable(s), " + kb(json.length);
       });
 
     }).then(function () {

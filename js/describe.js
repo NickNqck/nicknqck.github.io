@@ -124,8 +124,9 @@ const PowerDescriber = (function () {
           const yes = nodes(n.do), no = nodes(n.else);
           return c && (yes || no) ? "si " + RULES.fill(c, n.c.p, names) + ", " + (yes || "rien") + (no ? ", sinon " + no : "") : "";
         }
-        if (n.a === "DURING") { const each = nodes(n.do), end = nodes(n.end); return "pendant " + n.p.s + " s : " + (each || "rien") + (end ? ", puis " + end : ""); }
-        if (n.a === "WAIT") { const then = nodes(n.do); return then ? n.p.s + " s plus tard, " + then : ""; }
+        const secs = n.p && n.p.s && typeof n.p.s === "object" ? "« " + n.p.s.var + " »" : n.p && n.p.s; // nombre ou variable
+        if (n.a === "DURING") { const each = nodes(n.do), end = nodes(n.end); return "pendant " + secs + " s : " + (each || "rien") + (end ? ", puis " + end : ""); }
+        if (n.a === "WAIT") { const then = nodes(n.do); return then ? secs + " s plus tard, " + then : ""; }
         if (n.a === "EACH") {
           const before = names.subject;
           names.subject = "ce joueur";

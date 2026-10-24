@@ -56,9 +56,10 @@ const BlockEditor = (function () {
     { id: "ract", name: "Actions des règles", color: "#7C6BE0" },
     { id: "rcount", name: "Compteurs", color: "#E0702E" },
     { id: "rbar", name: "Barre d'action", color: "#2E9E8F" },
+    { id: "rvar", name: "Variables", color: "#D65CA0" },
     { id: "raot", name: "Attaque des Titans", color: "#B5533C" }
   ];
-  const RULE_CATS = ["rules", "rctrl", "rcond", "ract", "rcount", "rbar", "raot"];
+  const RULE_CATS = ["rules", "rctrl", "rcond", "ract", "rvar", "rcount", "rbar", "raot"];
   const AOT_ACTIONS = ["TITAN_GIVE", "TITAN_FLAG", "STEAL", "LANCE"];
   // catégories proposées selon le bloc de départ
   const CATS_OF = {
@@ -121,7 +122,7 @@ const BlockEditor = (function () {
   Object.keys(RULES.ACTIONS).forEach(function (k) {
     const spec = RULES.ACTIONS[k];
     const cat = spec.container ? "rctrl" : k === "SHOW_COUNTER" || k.indexOf("BAR_") === 0 ? "rbar" : k.indexOf("COUNTER") !== -1 ? "rcount"
-      : AOT_ACTIONS.indexOf(k) !== -1 ? "raot" : "ract";
+      : AOT_ACTIONS.indexOf(k) !== -1 ? "raot" : k.indexOf("VAR_") === 0 ? "rvar" : "ract";
     DEF["act_" + k] = { cat: cat, zone: "ract", rule: true, palette: k === "IF" ? "si ⬡ alors … sinon …" : paletteLabel(spec) };
     if (k === "IF") { // les conditions viennent juste après le « si » des règles
       Object.keys(RULES.CONDITIONS).forEach(function (c) {
@@ -1017,6 +1018,10 @@ const BlockEditor = (function () {
         if (d.type === "effect") p[k] = opts.potions.SPEED ? "SPEED" : Object.keys(opts.potions)[0];
         if (d.type === "counter") p[k] = "charge";
         if (d.type === "barname") p[k] = "info";
+        if (d.type === "var") { // première variable du bon type (menu Variables)
+          const v = (opts.vars || []).find(function (x) { return d.kinds.indexOf(x.type) !== -1; });
+          p[k] = v ? v.name : "";
+        }
       });
       return p;
     }
@@ -1123,14 +1128,25 @@ const BlockEditor = (function () {
     function ruleField(spec, p, key, rule) {
       const d = spec.params[key];
       switch (d.type) {
-        case "num": return num(p, key, d.min, d.max, d.step);
+        case "num": return ruleNum(p, key, d);
+        case "var": { // variable de l'addon du bon type
+          const list = (opts.vars || []).filter(function (v) { return d.kinds.indexOf(v.type) !== -1; })
+            .map(function (v) { return { id: v.name, name: v.name + (v.scope === "GLOBAL" ? " (partagée)" : "") }; });
+          if (!list.length && !p[key]) return el("span", "bk-note bk-inline", d.kinds.indexOf("BOOL") !== -1
+            ? "(crée d'abord une variable vrai / faux : menu Variables)" : "(crée d'abord une variable nombre : menu Variables)");
+          return keyChoice(p, key, list, "variable");
+        }
         case "bool": return ruleSelect(p, key, [["false", d.no], ["true", d.yes]], false, function (v) { return v === "true"; });
         case "sel": {
           let options = d.options.slice();
-          if (key === "to" || key === "who") { // « le joueur concerné » : nommé d'après le déclencheur, absent s'il n'y en a pas
+          if (RULES.WHO_KEYS.indexOf(key) !== -1) { // « le joueur concerné » : nommé d'après le déclencheur, absent s'il n'y en a pas
             const subject = subjectOf(rule);
             options = options.filter(function (o) { return o[0] !== "SUBJECT" || subject || p[key] === "SUBJECT"; })
-              .map(function (o) { return o[0] !== "SUBJECT" ? o : [o[0], subject ? (key === "who" ? subject + " a" : subject) : o[1] + " (aucun ici)"]; });
+              .map(function (o) {
+                if (o[0] !== "SUBJECT") return o;
+                if (!subject) return [o[0], o[1] + " (aucun ici)"];
+                return [o[0], key === "who" ? subject + " a" : key === "of" || key === "of2" ? "(celle " + RULES.deOf(subject) + ")" : subject];
+              });
           }
           // redessine quand ce choix affiche / cache un autre champ (rayon, rôle, distance, camp)
           const shows = Object.keys(spec.params).some(function (k) { return spec.params[k].showIf && spec.params[k].showIf[key]; });
@@ -1155,6 +1171,31 @@ const BlockEditor = (function () {
           return n;
         }
       }
+    }
+    // champ nombre d'un bloc de règle : un nombre, ou la valeur d'une variable nombre de l'addon ({ var: "nom" }, lue au moment de l'action)
+    function ruleNum(p, key, d) {
+      const vars = (opts.vars || []).filter(function (v) { return v.type !== "BOOL"; });
+      const isVar = p[key] && typeof p[key] === "object";
+      if (!vars.length && !isVar) return num(p, key, d.min, d.max, d.step);
+      const box = el("span", "bk-numvar");
+      const pick = el("select", "bk-sel bk-mini");
+      pick.title = "Un nombre, ou la valeur d'une variable";
+      [["#", "123"]].concat(vars.map(function (v) { return [v.name, "𝑥 " + v.name]; })).forEach(function (o) {
+        const op = el("option", "", o[1]); op.value = o[0]; pick.appendChild(op);
+      });
+      if (isVar && !vars.some(function (v) { return v.name === p[key].var; })) {
+        const op = el("option", "", "𝑥 " + p[key].var + " (introuvable)"); op.value = p[key].var; pick.appendChild(op);
+        pick.classList.add("bad");
+      }
+      pick.value = isVar ? p[key].var : "#";
+      pick.addEventListener("click", function (e) { e.stopPropagation(); });
+      pick.addEventListener("change", function () {
+        p[key] = pick.value === "#" ? RULES.clamp(d) : { var: pick.value };
+        commit();
+      });
+      box.appendChild(pick);
+      if (!isVar) box.appendChild(num(p, key, d.min, d.max, d.step));
+      return box;
     }
     // libellé du bloc avec ses champs à la place des {paramètres} ; rayon / rôle juste après « {to} » quand ils servent
     function ruleLabel(line, spec, p, rule) {

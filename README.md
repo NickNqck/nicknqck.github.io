@@ -37,6 +37,7 @@ Trois façons de le fournir :
       describe.js       description automatique d'un pouvoir (bouton « Générer automatiquement »)
       items-data.js, colors-data.js, effects-data.js, meetup-modes.js, meetup-teams.js   données
       commands-data.js  règles des commandes personnalisées (format, noms déjà pris par UHC-Meetup / Minecraft)
+      variables-data.js règles des variables de l'addon (menu Variables : nom, type, portée, valeurs)
       classgen.js       génère les classes Java (enums d'équipes et de rôles, rôles, pouvoirs)
       javagen.js        même chose en code source Java (bouton « Projet IntelliJ » du récapitulatif)
       jar-builder.js    assemble le .jar dans le navigateur (classes déplacées dans le package fr.<pseudo>.<projet>)
@@ -69,3 +70,20 @@ joueurs en vie », « les joueurs du camp », « un joueur au hasard du camp »,
 inventaire : elles passent par `PowerTakeInfoEvent`, qu'un pouvoir « quand un pouvoir cherche une information sur moi » peut détourner),
 dégâts du coup en cours, partie du corps touchée par une flèche, téléportation au loin, retour dans le temps, armure cachée, feu
 d'artifice, ajout de joueurs à la description, commande avec un nombre (`/aot fasttimetravel 10`).
+
+## Variables
+
+Le menu **Variables** crée des variables utilisables par tous les pouvoirs : nombre entier (`int`), nombre à virgule (`double`) ou
+vrai / faux (`boolean`), avec une valeur par joueur ou une seule valeur partagée par toute la partie, une valeur de départ (remise à chaque
+partie) et, pour les nombres, un minimum et un maximum.
+
+Dans les règles des pouvoirs (catégorie « Variables ») :
+
+- **modifier** une variable nombre : `=`, `+=`, `−=`, `×=`, `÷=` un nombre, une autre variable, un nombre au hasard, la vie ou la vie max
+  d'un joueur ; une variable vrai / faux : devient vraie, fausse, s'inverse ou copie une autre variable ;
+- **tester** une variable : comparer un nombre (≥ ≤ > < = ≠) à un nombre ou à une autre variable, ou savoir si elle est vraie ;
+- **utiliser** sa valeur dans n'importe quel champ nombre d'un bloc (petit menu `123` / `𝑥 nom` devant le champ) : niveau d'un effet,
+  durée, rayon, dégâts... (la valeur est bornée et arrondie comme le champ) ;
+- **l'afficher** dans un message ou la barre d'action : `%nom%` (ma valeur) ou `%joueur:nom%` (celle du joueur concerné).
+
+Une variable « par joueur » se lit et se modifie pour moi ou pour le joueur concerné par la règle. Le .jar les gère dans `Variables.java`.

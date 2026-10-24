@@ -15,6 +15,7 @@
     ["js/effects-data.js", has(function () { return POTION_LABELS; }) && has(function () { return PROTECTED_EFFECTS; }) && has(function () { return ENCHANT_LABELS; }) && has(function () { return TARGET_ACTIONS; })],
     ["js/meetup-teams.js", has(function () { return MEETUP_TEAMS; })],
     ["js/commands-data.js", has(function () { return commandProblem; }) && has(function () { return COMMAND_PATTERN; })],
+    ["js/variables-data.js", has(function () { return variableProblem; }) && has(function () { return VARIABLE_PATTERN; })],
     ["js/meetup-roles.js", has(function () { return MEETUP_ROLES; })],
     ["js/rules-data.js", has(function () { return RULES; })],
     ["js/blocks.js", has(function () { return BlockEditor; })],
@@ -57,6 +58,7 @@
   const TEAMS_ID = "teams", ROLES_ID = "roles"; // autres collections (voir menu-data.js)
   const MODES_ID = "modes";          // collection des modes de jeu créés (voir menu-data.js)
   const COMMANDS_ID = "commands";    // collection des commandes personnalisées (voir menu-data.js)
+  const VARIABLES_ID = "variables";  // collection des variables (voir variables-data.js)
 
   // Identité obligatoire : définie ici (et non dans menu-data.js) pour ne jamais casser le démarrage
   const IDENTITY = [
@@ -168,7 +170,7 @@
       }
       case "rules": { // règles « quand … » d'un pouvoir (js/rules-data.js). Rôles et camps : seul leur format est vérifié
         // ici (un rôle renommé ou supprimé ne doit pas faire perdre le .json) ; le .jar vérifie qu'ils existent.
-        const r = RULES.clean(v, { roles: null, teams: null, potions: POTION_LABELS, mcText: MC_TEXT, isItem: !!rec && rec.kind === "ITEM", kind: rec ? rec.kind : "" });
+        const r = RULES.clean(v, { roles: null, teams: null, vars: null, potions: POTION_LABELS, mcText: MC_TEXT, isItem: !!rec && rec.kind === "ITEM", kind: rec ? rec.kind : "" });
         rulesError = r.error || "";
         return r.error ? undefined : r.rules;
       }
@@ -466,6 +468,7 @@
         teamName: teamLabel,
         enchants: ENCHANT_LABELS, maxEnchants: MAX_ITEM_ENCHANTS,
         potions: POTION_LABELS, colors: COLORS,
+        vars: variableList(state[VARIABLES_ID]), // variables de l'addon (menu Variables)
         // règles : rôles d'UHC-Meetup et de l'addon, tous les camps, texte Minecraft autorisé
         roles: MEETUP_ROLES.map(function (r) {
           const twin = MEETUP_ROLES.some(function (x) { return x !== r && x.name === r.name; }); // ex. deux « Kaigaku » : on précise
@@ -938,7 +941,36 @@
     menu.appendChild(box);
   }
 
+  // Paramètres de toutes les règles de tous les pouvoirs (déclencheurs, blocs, conditions) : fn(p) pour chacun
+  function eachRuleParams(fn) {
+    const walk = function (list) {
+      (list || []).forEach(function (n) {
+        if (!n) return;
+        if (n.p) fn(n.p);
+        if (n.c && n.c.p) fn(n.c.p);
+        ["do", "else", "end"].forEach(function (k) { walk(n[k]); });
+      });
+    };
+    (state[ROLES_ID] || []).forEach(function (r) {
+      (r.powers || []).forEach(function (p) { (p.rules || []).forEach(function (rule) { if (rule.p) fn(rule.p); walk(rule.do); }); });
+    });
+  }
+  // Une variable est-elle utilisée par une règle ? rename : nouveau nom (les règles suivent)
+  function variableUse(name, rename) {
+    let used = false;
+    eachRuleParams(function (p) {
+      Object.keys(p).forEach(function (k) {
+        const v = p[k];
+        if ((k === "var" || k === "var2") && v === name) { used = true; if (rename) p[k] = rename; }
+        if (v && typeof v === "object" && v.var === name) { used = true; if (rename) v.var = rename; }
+      });
+    });
+    return used;
+  }
+
   function removeEntry(col, i) {
+    if (col.id === VARIABLES_ID && variableUse(state[col.id][i].name))
+      return say("Impossible : la variable « " + state[col.id][i].name + " » est utilisée dans les règles d'un pouvoir.", true);
     if (col.id === MODES_ID) {
       const key = normKey(state[col.id][i].name);
       const team = (state[TEAMS_ID] || []).find(function (t) { return t.mdj === key; });
@@ -1002,6 +1034,8 @@
           });
         });
       }
+      // renommer une variable : les règles qui l'utilisent suivent (changer son type reste vérifié à la création du .jar)
+      if (col.id === VARIABLES_ID && list[ed.index].name !== out.name) variableUse(list[ed.index].name, out.name);
       // renommer une commande : les pouvoirs qui l'utilisent suivent
       if (col.id === COMMANDS_ID && list[ed.index].name !== out.name) {
         const was = list[ed.index].name;
@@ -1465,7 +1499,7 @@
         return say("Ce fichier n'a pas été créé par ce site.", true);
       let ok = 0, ignored = 0;
       // les équipes dépendent des modes, les rôles des modes et des équipes : on importe dans cet ordre
-      const rank = function (k) { return k === MODES_ID ? 0 : k === TEAMS_ID || k === COMMANDS_ID ? 1 : k === ROLES_ID ? 2 : -1; };
+      const rank = function (k) { return k === MODES_ID ? 0 : k === TEAMS_ID || k === COMMANDS_ID || k === VARIABLES_ID ? 1 : k === ROLES_ID ? 2 : -1; };
       const keys = Object.keys(data.settings).sort(function (a, b) { return rank(a) - rank(b); });
       keys.forEach(function (key) {
         const it = items[key];

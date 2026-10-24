@@ -77,6 +77,8 @@ public final class RuleEngine implements Listener {
     /** Titans donnés par une règle (TITAN_GIVE) -> joueur qui l'a reçu : pour lui, ce n'est pas un vol (« quand je récupère un titan »). */
     private static final Map<TitanBase, UUID> GIVEN = new WeakHashMap<>();
     private static long lastGlobalTick;
+    /** Joueur dont on lit les variables dans les champs nombre ({ var: "nom" }) : le propriétaire du pouvoir en cours. */
+    private static UUID currentOwner;
 
     private final Power power;
     private final List<Map<String, Object>> rules = new ArrayList<>();
@@ -168,6 +170,7 @@ public final class RuleEngine implements Listener {
         seenTitan = titan;
         ticked = true;
         refreshBars();
+        currentOwner = owner;
         for (int i = 0; i < rules.size(); i++) {
             if (!"EVERY".equals(rules.get(i).get("on"))) continue;
             if (--everyLeft[i] > 0) continue;
@@ -478,6 +481,7 @@ public final class RuleEngine implements Listener {
     }
 
     private boolean use(Player player, String click, String[] args, String usage) {
+        currentOwner = player.getUniqueId();
         boolean ran = false;
         long wait = Long.MAX_VALUE;
         String problem = null;
@@ -607,6 +611,7 @@ public final class RuleEngine implements Listener {
     }
 
     private void exec(List<Object> nodes, final Ctx ctx) {
+        currentOwner = ctx.owner.getUniqueId();
         for (Object o : nodes) {
             @SuppressWarnings("unchecked") final Map<String, Object> node = (Map<String, Object>) o;
             final String a = str(node, "a");
@@ -669,6 +674,50 @@ public final class RuleEngine implements Listener {
                         if ("ALL".equals(filter) || ("IN".equals(filter) && in) || ("OUT".equals(filter) && !in)) n++;
                     }
                     setCounter(str(p, "name"), n);
+                    continue;
+                }
+                case "VAR_NUM": { // variable nombre : = + − × ÷ un nombre, une autre variable, un nombre au hasard, une vie
+                    UUID who = varOwner(str(p, "of"), ctx);
+                    String name = str(p, "var");
+                    double value;
+                    switch (str(p, "src")) {
+                        case "VAR": value = Variables.get(str(p, "var2"), varOwner(str(p, "of2"), ctx)); break;
+                        case "RANDOM": {
+                            double lo = dbl(p, "lo"), hi = dbl(p, "hi");
+                            value = Variables.isBool(name) ? 0 : lo + RANDOM.nextDouble() * (hi - lo);
+                            if (Math.rint(lo) == lo && Math.rint(hi) == hi) value = Math.floor(Math.min(lo, hi) + RANDOM.nextInt((int) Math.abs(hi - lo) + 1));
+                            break;
+                        }
+                        case "HP":
+                        case "MAXHP": {
+                            Player hp = "SUBJECT".equals(str(p, "hpwho")) ? ctx.subject : ctx.owner;
+                            if (hp == null) continue;
+                            value = ("HP".equals(str(p, "src")) ? hp.getHealth() : hp.getMaxHealth()) / 2.0;
+                            break;
+                        }
+                        default: value = dbl(p, "n");
+                    }
+                    if (who == null) continue;
+                    double current = Variables.get(name, who);
+                    switch (str(p, "op")) {
+                        case "ADD": value = current + value; break;
+                        case "SUB": value = current - value; break;
+                        case "MUL": value = current * value; break;
+                        case "DIV": if (value == 0.0) continue; value = current / value; break;
+                        default: break;
+                    }
+                    Variables.set(name, who, value);
+                    refreshBars(); // les %variable% affichées suivent tout de suite
+                    continue;
+                }
+                case "VAR_BOOL": {
+                    UUID who = varOwner(str(p, "of"), ctx);
+                    if (who == null) continue;
+                    String name = str(p, "var"), state = str(p, "state");
+                    boolean value = "TRUE".equals(state) || ("TOGGLE".equals(state) && Variables.get(name, who) == 0.0)
+                            || ("COPY".equals(state) && Variables.get(str(p, "var2"), varOwner(str(p, "of2"), ctx)) != 0.0);
+                    Variables.set(name, who, value ? 1.0 : 0.0);
+                    refreshBars();
                     continue;
                 }
                 case "EACH": { // chaque joueur visé, dans un ordre au hasard, devient le joueur concerné
@@ -1087,7 +1136,14 @@ public final class RuleEngine implements Listener {
 
     // ---------------------------------------------------------------- conditions
 
+    /** Joueur dont on lit / modifie la variable : moi ou le joueur concerné (null s'il n'y en a pas). */
+    private static UUID varOwner(String of, Ctx ctx) {
+        if ("SUBJECT".equals(of)) return ctx.subject == null ? null : ctx.subject.getUniqueId();
+        return ctx.owner.getUniqueId();
+    }
+
     private boolean test(Map<String, Object> node, Ctx ctx) {
+        currentOwner = ctx.owner.getUniqueId();
         @SuppressWarnings("unchecked") Map<String, Object> c = (Map<String, Object>) node.get("c");
         if (c == null) return false;
         Map<String, Object> p = params(c);
@@ -1098,6 +1154,22 @@ public final class RuleEngine implements Listener {
                 Map<UUID, Long> marked = marks.get(str(p, "name"));
                 Long until = ctx.subject == null || marked == null ? null : marked.get(ctx.subject.getUniqueId());
                 return until != null && System.currentTimeMillis() <= until;
+            }
+            case "VAR_CMP": {
+                UUID who = varOwner(str(p, "of"), ctx);
+                if (who == null) return false;
+                double value = Variables.get(str(p, "var"), who);
+                double ref = "VAR".equals(str(p, "src")) ? Variables.get(str(p, "var2"), varOwner(str(p, "of2"), ctx)) : dbl(p, "n");
+                switch (str(p, "op")) {
+                    case "GT": return value > ref + 1.0E-9;
+                    case "LT": return value < ref - 1.0E-9;
+                    case "NE": return Math.abs(value - ref) >= 1.0E-6;
+                    default: return compare(value, str(p, "op"), ref);
+                }
+            }
+            case "VAR_IS": {
+                UUID who = varOwner(str(p, "of"), ctx);
+                return who != null && (Variables.get(str(p, "var"), who) != 0.0) == "TRUE".equals(str(p, "state"));
             }
             case "ME_MARKED": {
                 Map<UUID, Long> marked = marks.get(str(p, "name"));
@@ -1260,8 +1332,19 @@ public final class RuleEngine implements Listener {
         text = text.replace("%x%", String.valueOf(at.getBlockX())).replace("%y%", String.valueOf(at.getBlockY())).replace("%z%", String.valueOf(at.getBlockZ()));
         text = text.replace("%mon_x%", String.valueOf(mine.getBlockX())).replace("%mon_y%", String.valueOf(mine.getBlockY()))
                 .replace("%mon_z%", String.valueOf(mine.getBlockZ()));
+        text = variables(text, ctx.owner.getUniqueId(), ctx.subject == null ? null : ctx.subject.getUniqueId());
         for (Map.Entry<String, Double> c : counters.entrySet()) text = text.replace("%" + c.getKey() + "%", format(c.getValue()));
         return text.replaceAll("%[a-z][a-z0-9_]{0,15}%", "0");
+    }
+
+    /** %nom% = ma variable (ou la valeur partagée), %joueur:nom% = celle du joueur concerné. */
+    private static String variables(String text, UUID mine, UUID subject) {
+        if (text.indexOf('%') < 0) return text;
+        for (String name : Variables.names()) {
+            text = text.replace("%joueur:" + name + "%", subject == null ? "?" : Variables.text(name, subject));
+            if (mine != null) text = text.replace("%" + name + "%", Variables.text(name, mine));
+        }
+        return text;
     }
 
     private static String format(double value) {
@@ -1285,6 +1368,7 @@ public final class RuleEngine implements Listener {
             text = text.replace("%temps%", "");
         }
         text = text.replace("%joueur%", bar.subject);
+        text = variables(text, ownerId(), bar.subjectId);
         if (text.contains("%fleche%") || text.contains("%distance%")) { // direction et distance du joueur concerné
             Player viewer = Bukkit.getPlayer(bar.player), other = bar.subjectId == null ? null : Bukkit.getPlayer(bar.subjectId);
             boolean same = viewer != null && other != null && viewer.getWorld().equals(other.getWorld());
@@ -1351,6 +1435,15 @@ public final class RuleEngine implements Listener {
 
     private static double dbl(Map<String, Object> map, String key) {
         Object v = map.get(key);
+        if (v instanceof Map) { // { var, min, max, step } : valeur d'une variable, bornée et arrondie comme le champ du bloc
+            @SuppressWarnings("unchecked") Map<String, Object> ref = (Map<String, Object>) v;
+            double value = Variables.get(str(ref, "var"), currentOwner);
+            double step = ref.get("step") instanceof Number ? ((Number) ref.get("step")).doubleValue() : 0.0;
+            if (step > 0) value = Math.round(value / step) * step;
+            if (ref.get("min") instanceof Number) value = Math.max(((Number) ref.get("min")).doubleValue(), value);
+            if (ref.get("max") instanceof Number) value = Math.min(((Number) ref.get("max")).doubleValue(), value);
+            return value;
+        }
         return v instanceof Number ? ((Number) v).doubleValue() : 0.0;
     }
 

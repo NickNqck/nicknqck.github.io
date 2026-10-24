@@ -488,3 +488,8 @@ body.bk-noscroll { overflow: hidden; }
   .bk-row.bk-full { padding: .5rem; }
   .bk-full .bk { grid-template-rows: minmax(0, 35fr) minmax(0, 65fr); }
 }
+
+/* champ nombre d'un bloc de règle : un nombre ou une variable de l'addon */
+.bk-numvar { display: inline-flex; align-items: center; gap: .2rem; }
+.bk-sel.bk-mini { max-width: 7.5rem; padding-left: .2rem; padding-right: .2rem; }
+.bk-note.bk-inline { display: inline; margin: 0; }

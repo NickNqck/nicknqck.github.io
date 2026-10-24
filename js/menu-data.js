@@ -288,6 +288,25 @@ const MENU = {
           ]) }
       ] },
 
+    // Variables (voir variables-data.js) : utilisables dans les règles de tous les pouvoirs
+    { type: "collection", id: "variables", label: "Variables", icon: "𝑥", createLabel: "Créer une variable", max: MAX_VARIABLES,
+      crossCheck: variableProblem,
+      fields: [
+        { type: "text", id: "name", label: "Nom de la variable", default: "", max: 16, pattern: VARIABLE_PATTERN,
+          hint: "ex. rage : minuscules, chiffres et _. Dans un message : %rage% (ma valeur) ou %joueur:rage% (celle du joueur concerné)." },
+        { type: "select", id: "vtype", label: "Type", default: "INT", options: ["INT", "DOUBLE", "BOOL"],
+          labels: { INT: "Nombre entier (int)", DOUBLE: "Nombre à virgule (double)", BOOL: "Vrai / faux (boolean)" } },
+        { type: "select", id: "scope", label: "Portée", default: "PLAYER", options: ["PLAYER", "GLOBAL"],
+          labels: { PLAYER: "Une valeur par joueur", GLOBAL: "Une seule valeur pour toute la partie (partagée)" } },
+        { type: "number", id: "initial", label: "Valeur au début de la partie", default: 0, min: -VARIABLE_LIMIT, max: VARIABLE_LIMIT, step: "any",
+          showIf: { vtype: ["INT", "DOUBLE"] } },
+        { type: "number", id: "min", label: "Minimum", default: -VARIABLE_LIMIT, min: -VARIABLE_LIMIT, max: VARIABLE_LIMIT, step: "any",
+          showIf: { vtype: ["INT", "DOUBLE"] } },
+        { type: "number", id: "max", label: "Maximum", default: VARIABLE_LIMIT, min: -VARIABLE_LIMIT, max: VARIABLE_LIMIT, step: "any",
+          showIf: { vtype: ["INT", "DOUBLE"] } },
+        { type: "toggle", id: "initialBool", label: "Vraie au début de la partie", default: false, showIf: { vtype: "BOOL" } }
+      ] },
+
     // Commandes personnalisées (/nom + alias). Chacune a /nom me, /nom roles et sa propre complétion (voir commands-data.js).
     { type: "collection", id: "commands", label: "Commandes", icon: "⌨", createLabel: "Créer une commande", max: MAX_COMMANDS,
       crossCheck: commandProblem,

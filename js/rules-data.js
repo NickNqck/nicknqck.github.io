@@ -13,7 +13,8 @@
  *
  * Paramètres : num [min, max, pas, défaut], sel [[valeur, libellé]…], bool [non, oui], role ("meetup:NezukoV2" ou
  * "addon:<constante du rôle>"), team ("meetup:Demon" ou "addon:<constante de l'équipe>"), effect (PotionEffectType), text,
- * counter (nom de compteur), barname (nom d'un affichage de la barre d'action).
+ * counter (nom de compteur), barname (nom d'un affichage de la barre d'action), var (variable de l'addon : menu Variables).
+ * Un paramètre num peut aussi valoir { var: "nom" } : la valeur d'une variable (nombre) de l'addon, lue au moment de l'action.
  * Libellés : {param} est remplacé par le champ du bloc.
  */
 const RULES = (function () {
@@ -23,6 +24,12 @@ const RULES = (function () {
   const sel = function (options, dflt) { return { type: "sel", options: options, dflt: dflt === undefined ? options[0][0] : dflt }; };
   const bool = function (no, yes) { return { type: "bool", no: no, yes: yes, dflt: false }; };
   const OPS = [["GE", "≥"], ["LE", "≤"], ["EQ", "="]];
+  // variables de l'addon (menu Variables) : nombre entier, nombre à virgule, vrai / faux ; une valeur par joueur ou une seule
+  const NUMVAR = ["INT", "DOUBLE"];
+  const varp = function (kinds, extra) { return Object.assign({ type: "var", kinds: kinds }, extra || {}); };
+  const OF = function (extra) { return Object.assign(sel([["ME", "(la mienne)"], ["SUBJECT", "(celle du joueur concerné)"]]), extra || {}); };
+  // paramètres qui désignent « le joueur concerné » (refusés si le déclencheur n'en a pas)
+  const WHO_KEYS = ["to", "who", "of", "of2", "hpwho"];
 
   // destinataire d'une action : moi, le joueur concerné (selon le déclencheur), les joueurs autour, le joueur d'un rôle
   // (ALL, TEAM, RANDOM, MARKED : jamais moi)
@@ -73,6 +80,8 @@ const RULES = (function () {
         max: Object.assign(num(1, 3600, 1, 60), { showIf: { target: ["NUM"] }, after: "target", prefix: "de 1 à" }) },
       subject: function (p) { return p && (p.target === "ARG" || p.target === "AIM") ? (p.target === "ARG" ? "le joueur nommé" : "le joueur visé") : null; } }
   };
+  /** « de » + un joueur, contracté : « du joueur tué », « de mon attaquant ». */
+  const deOf = function (who) { return /^le /.test(who) ? "du " + who.slice(3) : /^les /.test(who) ? "des " + who.slice(4) : "de " + who; };
   /** Libellé du « joueur concerné » d'une règle (null = aucun). */
   const subjectOf = function (on, p) {
     const s = TRIGGERS[on] && TRIGGERS[on].subject;
@@ -100,6 +109,13 @@ const RULES = (function () {
     S_MARKED: { label: "le joueur concerné porte la marque {name}", params: { name: { type: "barname" } }, needsSubject: true },
     S_EFFECT: { label: "le joueur concerné a l'effet {effect}", params: { effect: { type: "effect" } }, needsSubject: true },
     NO_ARMOR: { label: "je ne porte aucune armure" },
+    // variables de l'addon
+    VAR_CMP: { label: "la variable {var} {of} {op} {src}", params: { var: varp(NUMVAR), of: OF(),
+      op: sel([["GE", "≥"], ["LE", "≤"], ["GT", ">"], ["LT", "<"], ["EQ", "="], ["NE", "≠"]]),
+      src: sel([["NUM", "le nombre"], ["VAR", "la variable"]]),
+      n: Object.assign(num(-1000000, 1000000, 0.01, 0), { showIf: { src: ["NUM"] }, after: "src" }),
+      var2: varp(NUMVAR, { showIf: { src: ["VAR"] }, after: "src" }), of2: OF({ showIf: { src: ["VAR"] }, after: "src" }) } },
+    VAR_IS: { label: "la variable {var} {of} est {state}", params: { var: varp(["BOOL"]), of: OF(), state: sel([["TRUE", "vraie"], ["FALSE", "fausse"]]) } },
     ME_MARKED: { label: "je porte la marque {name}", params: { name: { type: "barname" } } },
     S_NEAR: { label: "le joueur concerné est à moins de {r} blocs de moi", params: { r: num(1, 200, 1, 15) }, needsSubject: true },
     HIT_ZONE: { label: "la flèche a touché {zone}", params: { zone: sel([["HEAD", "la tête"], ["BODY", "le torse"], ["LEGS", "les jambes"]]) },
@@ -170,6 +186,18 @@ const RULES = (function () {
       s: Object.assign(num(1, 3600, 1, 180), { showIf: { mode: ["HIDE"] }, after: "to", prefix: "pendant", suffix: "s" }) }) },
     FIREWORK: { label: "lancer un feu d'artifice {color} sur {to}", params: withTo({ color: sel([["GREEN", "vert"], ["RED", "rouge"], ["BLUE", "bleu"],
       ["YELLOW", "jaune"], ["WHITE", "blanc"], ["ORANGE", "orange"], ["PURPLE", "violet"]]) }) },
+    // variables de l'addon (menu Variables)
+    VAR_NUM: { label: "variable {var} {of} {op} {src}", params: { var: varp(NUMVAR), of: OF(),
+      op: sel([["SET", "="], ["ADD", "+="], ["SUB", "−="], ["MUL", "×="], ["DIV", "÷="]]),
+      src: sel([["NUM", "le nombre"], ["VAR", "la variable"], ["RANDOM", "un nombre au hasard entre"], ["HP", "la vie (❤) de"], ["MAXHP", "la vie max (❤) de"]]),
+      n: Object.assign(num(-1000000, 1000000, 0.01, 1), { showIf: { src: ["NUM"] }, after: "src" }),
+      var2: varp(NUMVAR, { showIf: { src: ["VAR"] }, after: "src" }), of2: OF({ showIf: { src: ["VAR"] }, after: "src" }),
+      lo: Object.assign(num(-1000000, 1000000, 0.01, 1), { showIf: { src: ["RANDOM"] }, after: "src" }),
+      hi: Object.assign(num(-1000000, 1000000, 0.01, 10), { showIf: { src: ["RANDOM"] }, after: "src", prefix: "et" }),
+      hpwho: Object.assign(sel([["ME", "moi"], ["SUBJECT", "le joueur concerné"]]), { showIf: { src: ["HP", "MAXHP"] }, after: "src" }) } },
+    VAR_BOOL: { label: "variable {var} {of} {state}", params: { var: varp(["BOOL"]), of: OF(),
+      state: sel([["TRUE", "devient vraie"], ["FALSE", "devient fausse"], ["TOGGLE", "s'inverse"], ["COPY", "prend la valeur de"]]),
+      var2: varp(["BOOL"], { showIf: { state: ["COPY"] }, after: "state" }), of2: OF({ showIf: { state: ["COPY"] }, after: "state" }) } },
     // conteneurs
     EACH: { label: "pour chaque joueur parmi {to}, dans un ordre au hasard (« le joueur concerné » = ce joueur) :",
       params: Object.assign(withTo({}), { to: Object.assign({}, TO.to, { dflt: "ALL" }) }), container: ["do"] },
@@ -213,9 +241,20 @@ const RULES = (function () {
       if (v === undefined && (d.type === "num" || d.type === "sel" || d.type === "bool")) v = d.dflt;
       switch (d.type) {
         case "num":
+          if (v && typeof v === "object") { // valeur d'une variable (nombre) : bornée et arrondie comme le champ, au moment de l'action
+            const vr = varCheck(v.var, NUMVAR, ctx);
+            if (vr) return { error: where + " : " + vr };
+            v = { var: v.var, min: d.min, max: d.max, step: d.step };
+            break;
+          }
           if (typeof v !== "number" || !isFinite(v) || v < d.min || v > d.max || Math.abs(Math.round(v / d.step) * d.step - v) > 1e-9)
             return { error: where + " : valeur invalide (" + v + ")." };
           break;
+        case "var": {
+          const vr = varCheck(v, d.kinds, ctx);
+          if (vr) return { error: where + " : " + vr };
+          break;
+        }
         case "sel": if (!d.options.some(function (o) { return o[0] === v; })) return { error: where + " : choix invalide." }; break;
         case "bool": if (typeof v !== "boolean") v = false; break;
         case "role": if (typeof v !== "string" || !keyOk(v) || (ctx.roles && ctx.roles.indexOf(v) === -1)) return { error: where + " : choisis un rôle." }; break;
@@ -231,6 +270,18 @@ const RULES = (function () {
     }
     return { p: out };
   }
+
+  /** Variable valable ? ctx.vars = [{ name, type }] (null : seul le format est vérifié). Retourne un message ou "". */
+  function varCheck(name, kinds, ctx) {
+    if (typeof name !== "string" || !/^[a-z][a-z0-9_]{0,15}$/.test(name)) return "choisis une variable.";
+    if (!ctx.vars) return "";
+    const v = ctx.vars.find(function (x) { return x.name === name; });
+    if (!v) return "la variable « " + name + " » n'existe pas (menu Variables).";
+    if (kinds && kinds.indexOf(v.type) === -1) return "la variable « " + name + " » n'est pas " + (kinds.indexOf("BOOL") !== -1 ? "vrai / faux." : "un nombre.");
+    return "";
+  }
+  /** Ce paramètre désigne-t-il « le joueur concerné » ? */
+  const usesSubject = function (p) { return WHO_KEYS.some(function (k) { return p[k] === "SUBJECT"; }); };
 
   /** Nettoie une liste de règles. Retourne { rules } ou { error }. */
   function clean(rules, ctx) {
@@ -249,7 +300,7 @@ const RULES = (function () {
         const label = "« " + spec.label.replace(/\{\w+\}/g, "…") + " »";
         const cp = cleanParams(spec, n.p, ctx, label);
         if (cp.error) return cp;
-        if (cp.p.to === "SUBJECT" && !subject) return { error: label + " : ce déclencheur n'a pas de « joueur concerné »." };
+        if (usesSubject(cp.p) && !subject) return { error: label + " : ce déclencheur n'a pas de « joueur concerné »." };
         if (spec.hitOnly && (late || ["HIT_GIVEN", "HIT_TAKEN", "HITS"].indexOf(rule.on) === -1 || (rule.on === "HIT_GIVEN" && rule.p && rule.p.with === "ARROW")))
           return { error: label + " : seulement dans une règle « quand je frappe un joueur » (pas avec une flèche), « quand on me frappe » ou « tous les N coups », hors « attendre » / « pendant »." };
         if (spec.infoOnly && (late || rule.on !== "INFO_ON_ME"))
@@ -263,7 +314,7 @@ const RULES = (function () {
             return { error: "« " + cs.label.replace(/\{\w+\}/g, "…") + " » : seulement dans une règle « quand je frappe un joueur avec une flèche », hors « attendre » / « pendant »." };
           const ccp = cleanParams(cs, c.p, ctx, "« " + cs.label.replace(/\{\w+\}/g, "…") + " »");
           if (ccp.error) return ccp;
-          if (ccp.p.who === "SUBJECT" && !subject) return { error: "Une condition parle du « joueur concerné » mais ce déclencheur n'en a pas." };
+          if (usesSubject(ccp.p) && !subject) return { error: "Une condition parle du « joueur concerné » mais ce déclencheur n'en a pas." };
           o.c = { k: c.k, p: ccp.p };
         }
         for (const slot of spec.container || []) {
@@ -316,13 +367,17 @@ const RULES = (function () {
       const d = params[k], v = p[k];
       if (!d) return "";
       if (!visible(d, p)) return "";
+      if (d.type === "num" && v && typeof v === "object") return "« " + v.var + " »";
       switch (d.type) {
         case "num": return String(v).replace(".", ",");
+        case "var": return "« " + (v || "…") + " »";
         case "sel": {
           if (k === "to" && v === "SUBJECT" && names.subject) return names.subject + extras(k);
           const o = d.options.find(function (x) { return x[0] === v; });
           let s = o ? o[1] : String(v);
           if (k === "who" && v === "SUBJECT" && names.subject) s = names.subject + " a";
+          if ((k === "of" || k === "of2") && v === "SUBJECT" && names.subject) s = "(celle " + deOf(names.subject) + ")";
+          if (k === "hpwho" && v === "SUBJECT" && names.subject) s = names.subject;
           return s + extras(k);
         }
         case "bool": return v ? d.yes : d.no;
@@ -336,6 +391,7 @@ const RULES = (function () {
   }
 
   return { TRIGGERS: TRIGGERS, CONDITIONS: CONDITIONS, ACTIONS: ACTIONS, defaults: defaults, visible: visible, clean: clean, fill: fill,
-    subjectOf: subjectOf, TITANS: TITANS,
+    subjectOf: subjectOf, deOf: deOf, TITANS: TITANS, WHO_KEYS: WHO_KEYS, varCheck: varCheck,
+    clamp: function (d) { return d.dflt; }, // valeur d'un champ nombre qui redevient un nombre
     MAX_RULES: MAX_RULES, MAX_NODES: MAX_NODES, MAX_DEPTH: MAX_DEPTH };
 })();
